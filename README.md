@@ -104,7 +104,7 @@ The installer will:
 1. Detect host architecture (`x86_64` vs `aarch64`).
 2. Download the matching prebuilt release binary.
 3. Automatically create `/root/Go-shortner/` and `/root/Go-shortner/data/`.
-4. Generate a secure production `.env` (with random `JWT_SECRET` and initial admin credentials) if one does not already exist. **Existing databases and configurations are never overwritten on update.**
+4. Generate a secure production `.env` (with random `JWT_SECRET`). **Zero Hardcoded Credentials**: The very first user to register at `https://go.arcn.online/register` (via email or Google) automatically claims the Super Admin role and ownership!
 5. Install and start the `systemd` service (`go-shortener.service`).
 
 ---
@@ -239,8 +239,6 @@ To remove **GO Shortener** from your VPS:
 | `REGISTERED_MONTHLY_QUOTA` | Max links per registered user per calendar month | `100` |
 | `ANONYMOUS_MAX_EXPIRATION_DAYS` | Max expiration window for anonymous links | `7` |
 | `REGISTERED_MAX_EXPIRATION_DAYS` | Max expiration window for registered links | `365` |
-| `ADMIN_BOOTSTRAP_EMAIL` | Initial Super Admin email on first run | `admin@arcn.online` |
-| `ADMIN_BOOTSTRAP_PASSWORD` | Initial Super Admin password on first run | Auto-generated on install |
 | `TURNSTILE_ENABLED` | Enable Cloudflare Turnstile CAPTCHA | `false` |
 | `TURNSTILE_SITE_KEY` | Turnstile public site key | Empty |
 | `TURNSTILE_SECRET_KEY` | Turnstile secret key | Empty |

@@ -79,6 +79,15 @@ func (s *AuthService) Register(req models.RegisterRequest, clientIP, userAgent s
 	userID := generateID()
 	now := time.Now().UTC()
 
+	// Automatic Super Admin claim for the very first user
+	role := models.RoleUser
+	quotaLimit := s.cfg.RegisteredMonthlyQuota
+	hasAdmin, err := s.userRepo.HasSuperAdmin()
+	if err == nil && !hasAdmin {
+		role = models.RoleSuperAdmin
+		quotaLimit = 999999
+	}
+
 	user := &models.User{
 		ID:           userID,
 		FirstName:    req.FirstName,
@@ -86,9 +95,9 @@ func (s *AuthService) Register(req models.RegisterRequest, clientIP, userAgent s
 		Email:        req.Email,
 		PasswordHash: string(hashedPassword),
 		AuthProvider: "email",
-		Role:         models.RoleUser,
+		Role:         role,
 		Status:       models.UserStatusActive,
-		QuotaLimit:   s.cfg.RegisteredMonthlyQuota,
+		QuotaLimit:   quotaLimit,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -269,6 +278,16 @@ func (s *AuthService) LoginWithGoogle(idToken string, clientIP, userAgent string
 
 		userID := generateID()
 		now := time.Now().UTC()
+
+		// Automatic Super Admin claim for the very first user
+		role := models.RoleUser
+		quotaLimit := s.cfg.RegisteredMonthlyQuota
+		hasAdmin, err := s.userRepo.HasSuperAdmin()
+		if err == nil && !hasAdmin {
+			role = models.RoleSuperAdmin
+			quotaLimit = 999999
+		}
+
 		user = &models.User{
 			ID:           userID,
 			FirstName:    firstName,
@@ -276,9 +295,9 @@ func (s *AuthService) LoginWithGoogle(idToken string, clientIP, userAgent string
 			Email:        email,
 			AuthProvider: "google",
 			FirebaseUID:  &claims.UID,
-			Role:         models.RoleUser,
+			Role:         role,
 			Status:       models.UserStatusActive,
-			QuotaLimit:   s.cfg.RegisteredMonthlyQuota,
+			QuotaLimit:   quotaLimit,
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		}

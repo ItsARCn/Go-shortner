@@ -90,8 +90,6 @@ ENV_FILE="${INSTALL_DIR}/.env"
 if [ ! -f "${ENV_FILE}" ]; then
     echo "[INFO] Creating initial production .env configuration..."
     RANDOM_SECRET=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 40)
-    ADMIN_INIT_PW="AdminPass_$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)!"
-
     cat << ENVCONF > "${ENV_FILE}"
 # Server Configuration
 PORT=3000
@@ -112,10 +110,6 @@ REGISTERED_MONTHLY_QUOTA=100
 ANONYMOUS_MAX_EXPIRATION_DAYS=7
 REGISTERED_MAX_EXPIRATION_DAYS=365
 
-# Super Admin Initial Bootstrap
-ADMIN_BOOTSTRAP_EMAIL=admin@arcn.online
-ADMIN_BOOTSTRAP_PASSWORD=${ADMIN_INIT_PW}
-
 # Cloudflare Turnstile CAPTCHA (Optional - add keys if required)
 TURNSTILE_ENABLED=false
 TURNSTILE_SITE_KEY=
@@ -127,11 +121,11 @@ ENVCONF
 
     chmod 600 "${ENV_FILE}"
     echo "---------------------------------------------------------------"
-    echo "[IMPORTANT] Bootstrapped Admin Credentials Created:"
-    echo "  Email:    admin@arcn.online"
-    echo "  Password: ${ADMIN_INIT_PW}"
-    echo "  Config:   ${ENV_FILE}"
-    echo "  Please change this password upon first login!"
+    echo "[IMPORTANT] First User Super Admin Claim Active:"
+    echo "  Open https://go.arcn.online/register and create your account."
+    echo "  The very first user to register (via email or Google)"
+    echo "  automatically becomes the Super Administrator!"
+    echo "  Config File: ${ENV_FILE}"
     echo "---------------------------------------------------------------"
 else
     echo "[INFO] Existing .env found at ${ENV_FILE}. Preserving existing configuration and secrets."

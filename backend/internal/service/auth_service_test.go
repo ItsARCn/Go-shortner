@@ -126,3 +126,46 @@ func TestAuthRegisterAndLogin(t *testing.T) {
 		t.Errorf("expected ErrInvalidCredentials, got: %v", err)
 	}
 }
+
+func TestFirstUserClaimsSuperAdmin(t *testing.T) {
+	authSvc, _, cleanup := setupAuthTestDB(t)
+	defer cleanup()
+
+	// 1. First user registers -> Must be granted Super Admin automatically
+	resp1, err := authSvc.Register(models.RegisterRequest{
+		FirstName:       "Owner",
+		LastName:        "Admin",
+		Email:           "owner@example.com",
+		Password:        "OwnerPass123!",
+		ConfirmPassword: "OwnerPass123!",
+	}, "127.0.0.1", "curl")
+	if err != nil {
+		t.Fatalf("first registration failed: %v", err)
+	}
+
+	if resp1.User.Role != models.RoleSuperAdmin {
+		t.Errorf("expected first user to have role super_admin, got: %s", resp1.User.Role)
+	}
+	if resp1.User.QuotaLimit != 999999 {
+		t.Errorf("expected first user to have quota 999999, got: %d", resp1.User.QuotaLimit)
+	}
+
+	// 2. Second user registers -> Must have regular user role
+	resp2, err := authSvc.Register(models.RegisterRequest{
+		FirstName:       "Regular",
+		LastName:        "User",
+		Email:           "regular@example.com",
+		Password:        "UserPass123!",
+		ConfirmPassword: "UserPass123!",
+	}, "127.0.0.1", "curl")
+	if err != nil {
+		t.Fatalf("second registration failed: %v", err)
+	}
+
+	if resp2.User.Role != models.RoleUser {
+		t.Errorf("expected second user to have role user, got: %s", resp2.User.Role)
+	}
+	if resp2.User.QuotaLimit != 100 {
+		t.Errorf("expected second user to have quota 100, got: %d", resp2.User.QuotaLimit)
+	}
+}

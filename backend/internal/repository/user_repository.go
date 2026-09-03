@@ -417,3 +417,13 @@ func (r *UserRepository) UpdateUserRole(userID string, role models.UserRole) err
 	_, err := r.db.Exec(query, string(role), userID)
 	return err
 }
+
+// HasSuperAdmin checks if at least one super_admin already exists in the system.
+func (r *UserRepository) HasSuperAdmin() (bool, error) {
+	var count int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM users WHERE role = 'super_admin'").Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
