@@ -351,3 +351,17 @@ func (s *LinkService) GetUserDashboard(ownerID string, quotaLimit int, search, s
 		Total: total,
 	}, nil
 }
+
+// GetLinkAnalytics returns click analytics for a link owned by the user.
+func (s *LinkService) GetLinkAnalytics(shortCode string, ownerID string) (*models.LinkAnalyticsResponse, error) {
+	link, err := s.repo.GetLinkByCode(shortCode)
+	if err != nil {
+		return nil, ErrLinkNotFound
+	}
+
+	if link.OwnerID == nil || *link.OwnerID != ownerID {
+		return nil, repository.ErrUnauthorized
+	}
+
+	return s.repo.GetLinkAnalytics(link.ID, link.ShortCode, link.DestinationURL)
+}

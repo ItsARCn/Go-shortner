@@ -117,6 +117,58 @@
     </div>
   </div>
 
+  <!-- Analytics Modal -->
+  <div id="analytics-modal" class="modal-backdrop">
+    <div class="modal-card analytics-modal-card">
+      <div class="modal-header">
+        <h3>Link Analytics: <span id="analytics-code" style="color: #60a5fa;"></span></h3>
+        <button id="close-analytics-modal" class="modal-close-btn">&times;</button>
+      </div>
+      <p id="analytics-dest" class="dest-url" style="margin-bottom: 1.25rem; font-size: 0.85rem; max-width: 100%;"></p>
+
+      <div class="analytics-grid">
+        <div class="analytics-metric">
+          <div class="analytics-metric-val" id="metric-total">0</div>
+          <div class="analytics-metric-lbl">Total Clicks</div>
+        </div>
+        <div class="analytics-metric">
+          <div class="analytics-metric-val" id="metric-today">0</div>
+          <div class="analytics-metric-lbl">Today</div>
+        </div>
+        <div class="analytics-metric">
+          <div class="analytics-metric-val" id="metric-week">0</div>
+          <div class="analytics-metric-lbl">Past 7 Days</div>
+        </div>
+        <div class="analytics-metric">
+          <div class="analytics-metric-val" id="metric-month">0</div>
+          <div class="analytics-metric-lbl">Past 30 Days</div>
+        </div>
+      </div>
+
+      <div class="analytics-two-col">
+        <div>
+          <div class="analytics-section-title">Devices</div>
+          <div id="analytics-devices-list"></div>
+        </div>
+        <div>
+          <div class="analytics-section-title">Browsers</div>
+          <div id="analytics-browsers-list"></div>
+        </div>
+      </div>
+
+      <div class="analytics-two-col" style="margin-bottom: 0;">
+        <div>
+          <div class="analytics-section-title">Operating Systems</div>
+          <div id="analytics-os-list"></div>
+        </div>
+        <div>
+          <div class="analytics-section-title">Top Referrers</div>
+          <div id="analytics-referrers-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/assets/dashboard.js"></script>
 </body>
 </html>

@@ -183,3 +183,42 @@ func (h *UserHandler) HandleDeleteLink(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Link deleted successfully"})
 }
+
+// HandleLinkAnalytics handles GET /api/user/links/{code}/analytics
+func (h *UserHandler) HandleLinkAnalytics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	code := r.PathValue("code")
+	if code == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 4 {
+			code = parts[3]
+		}
+	}
+
+	analytics, err := h.linkService.GetLinkAnalytics(code, claims.UserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUnauthorized) {
+			writeJSONError(w, http.StatusForbidden, "You do not have permission to view analytics for this link")
+			return
+		}
+		if errors.Is(err, service.ErrLinkNotFound) {
+			writeJSONError(w, http.StatusNotFound, "Link not found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to load analytics")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(analytics)
+}

@@ -10,19 +10,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arc/go-shortener/internal/config"
 	"github.com/arc/go-shortener/internal/middleware"
 	"github.com/arc/go-shortener/internal/models"
 	"github.com/arc/go-shortener/internal/service"
+	"github.com/arc/go-shortener/internal/validator"
 )
 
 type Handler struct {
 	linkService *service.LinkService
+	cfg         *config.Config
 	startTime   time.Time
 }
 
-func NewHandler(linkService *service.LinkService) *Handler {
+func NewHandler(linkService *service.LinkService, cfg *config.Config) *Handler {
 	return &Handler{
 		linkService: linkService,
+		cfg:         cfg,
 		startTime:   time.Now(),
 	}
 }
@@ -45,6 +49,12 @@ func (h *Handler) HandleShorten(w http.ResponseWriter, r *http.Request) {
 	var ownerID *string
 	if claims := middleware.GetUserFromContext(r.Context()); claims != nil {
 		ownerID = &claims.UserID
+	}
+	if ownerID == nil && h.cfg != nil && h.cfg.TurnstileEnabled {
+		if err := validator.VerifyTurnstileToken(h.cfg.TurnstileSecretKey, clientIP, req.TurnstileToken, h.cfg.TurnstileEnabled); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	resp, err := h.linkService.Shorten(req, ownerID, clientIP)

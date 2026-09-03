@@ -230,3 +230,77 @@ func generateID() string {
 	_, _ = rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }
+
+// LoginWithGoogle authenticates or registers a user via a Google/Firebase ID token with safe account linking.
+func (s *AuthService) LoginWithGoogle(idToken string, clientIP, userAgent string) (*models.AuthResponse, error) {
+	claims, err := VerifyFirebaseToken(idToken, s.cfg.FirebaseProjectID)
+	if err != nil {
+		return nil, err
+	}
+
+	email := strings.ToLower(strings.TrimSpace(claims.Email))
+	ipHash := hashIdentity(clientIP)
+
+	user, err := s.userRepo.GetUserByEmail(email)
+	if err == nil {
+		// Existing account found: perform safe account linking
+		if user.Status == models.UserStatusBanned {
+			_ = s.userRepo.RecordLoginAttempt(email, "google", "UNAUTHORIZED", ipHash, userAgent)
+			return nil, ErrAccountBanned
+		}
+
+		// Link Firebase UID if not already linked
+		if user.FirebaseUID == nil || *user.FirebaseUID != claims.UID {
+			_ = s.userRepo.LinkGoogleAccount(user.ID, claims.UID)
+			user.FirebaseUID = &claims.UID
+			user.AuthProvider = "google"
+		}
+	} else if errors.Is(err, repository.ErrUserNotFound) {
+		// New user: create user account with Google provider
+		firstName := "Google"
+		lastName := "User"
+		if claims.Name != "" {
+			nameParts := strings.SplitN(strings.TrimSpace(claims.Name), " ", 2)
+			firstName = nameParts[0]
+			if len(nameParts) > 1 {
+				lastName = nameParts[1]
+			}
+		}
+
+		userID := generateID()
+		now := time.Now().UTC()
+		user = &models.User{
+			ID:           userID,
+			FirstName:    firstName,
+			LastName:     lastName,
+			Email:        email,
+			AuthProvider: "google",
+			FirebaseUID:  &claims.UID,
+			Role:         models.RoleUser,
+			Status:       models.UserStatusActive,
+			QuotaLimit:   s.cfg.RegisteredMonthlyQuota,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+
+		if err := s.userRepo.CreateUser(user); err != nil {
+			return nil, fmt.Errorf("failed to create Google user: %w", err)
+		}
+	} else {
+		return nil, err
+	}
+
+	// Record audit
+	_ = s.userRepo.RecordLoginAttempt(email, "google", "SUCCESS", ipHash, userAgent)
+	_ = s.userRepo.UpdateLastLogin(user.ID)
+
+	token, err := s.GenerateToken(user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.AuthResponse{
+		Token: token,
+		User:  user,
+	}, nil
+}

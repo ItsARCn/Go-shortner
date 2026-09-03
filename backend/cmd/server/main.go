@@ -40,11 +40,11 @@ func main() {
 	linkService := service.NewLinkService(linkRepo, cfg)
 	authService := service.NewAuthService(userRepo, cfg)
 
-	h := handlers.NewHandler(linkService)
-	authHandler := handlers.NewAuthHandler(authService)
+	h := handlers.NewHandler(linkService, cfg)
+	authHandler := handlers.NewAuthHandler(authService, cfg)
 	userHandler := handlers.NewUserHandler(linkService, authService)
 
-	// 4. Rate Limiter (30 requests/minute per IP for shortening, 10/min for auth)
+	// 4. Rate Limiter (30 requests/minute per IP for shortening, 15/min for auth)
 	shortenLimiter := middleware.NewRateLimiter(30, time.Minute)
 	authLimiter := middleware.NewRateLimiter(15, time.Minute)
 
@@ -59,12 +59,14 @@ func main() {
 	// Auth API Endpoints
 	mux.HandleFunc("POST /api/auth/register", authLimiter.Limit(authHandler.HandleRegister))
 	mux.HandleFunc("POST /api/auth/login", authLimiter.Limit(authHandler.HandleLogin))
+	mux.HandleFunc("POST /api/auth/google", authLimiter.Limit(authHandler.HandleGoogleLogin))
 	mux.HandleFunc("POST /api/auth/logout", authHandler.HandleLogout)
 	mux.HandleFunc("GET /api/auth/me", middleware.RequireAuth(authService, authHandler.HandleMe))
 
 	// User API Endpoints (Protected)
 	mux.HandleFunc("GET /api/user/dashboard", middleware.RequireAuth(authService, userHandler.HandleDashboard))
 	mux.HandleFunc("GET /api/user/links", middleware.RequireAuth(authService, userHandler.HandleLinks))
+	mux.HandleFunc("GET /api/user/links/{code}/analytics", middleware.RequireAuth(authService, userHandler.HandleLinkAnalytics))
 	mux.HandleFunc("POST /api/user/links/{code}/renew", middleware.RequireAuth(authService, userHandler.HandleRenewLink))
 	mux.HandleFunc("DELETE /api/user/links/{code}", middleware.RequireAuth(authService, userHandler.HandleDeleteLink))
 

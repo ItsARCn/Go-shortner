@@ -330,3 +330,95 @@ func (r *LinkRepository) SoftDeleteLink(shortCode string, ownerID string) error 
 
 	return nil
 }
+
+// GetLinkAnalytics aggregates click metrics for a link.
+func (r *LinkRepository) GetLinkAnalytics(linkID string, shortCode string, destinationURL string) (*models.LinkAnalyticsResponse, error) {
+	resp := &models.LinkAnalyticsResponse{
+		ShortCode:      shortCode,
+		DestinationURL: destinationURL,
+	}
+
+	timeQuery := `
+		SELECT
+			COUNT(*) as total,
+			COALESCE(SUM(CASE WHEN clicked_at >= datetime('now', 'start of day') THEN 1 ELSE 0 END), 0) as today,
+			COALESCE(SUM(CASE WHEN clicked_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END), 0) as week,
+			COALESCE(SUM(CASE WHEN clicked_at >= datetime('now', '-30 days') THEN 1 ELSE 0 END), 0) as month
+		FROM link_clicks
+		WHERE link_id = ?
+	`
+	err := r.db.QueryRow(timeQuery, linkID).Scan(
+		&resp.TotalClicks,
+		&resp.ClicksToday,
+		&resp.ClicksThisWeek,
+		&resp.ClicksThisMonth,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	total := float64(resp.TotalClicks)
+	if total == 0 {
+		total = 1.0
+	}
+
+	resp.Devices = r.queryBreakdown("device_type", linkID, total)
+	resp.Browsers = r.queryBreakdown("browser", linkID, total)
+	resp.OperatingSystems = r.queryBreakdown("os", linkID, total)
+	resp.TopReferrers = r.queryReferrers(linkID, total)
+
+	return resp, nil
+}
+
+func (r *LinkRepository) queryBreakdown(column, linkID string, total float64) []models.AnalyticsBreakdownItem {
+	query := fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(%s, ''), 'Unknown') as name, COUNT(*) as count
+		FROM link_clicks
+		WHERE link_id = ?
+		GROUP BY name
+		ORDER BY count DESC
+		LIMIT 5
+	`, column)
+
+	rows, err := r.db.Query(query, linkID)
+	if err != nil {
+		return []models.AnalyticsBreakdownItem{}
+	}
+	defer rows.Close()
+
+	var items []models.AnalyticsBreakdownItem
+	for rows.Next() {
+		var item models.AnalyticsBreakdownItem
+		if err := rows.Scan(&item.Name, &item.Count); err == nil {
+			item.Percentage = (float64(item.Count) / total) * 100
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+func (r *LinkRepository) queryReferrers(linkID string, total float64) []models.AnalyticsBreakdownItem {
+	query := `
+		SELECT COALESCE(NULLIF(referrer, ''), 'Direct / None') as name, COUNT(*) as count
+		FROM link_clicks
+		WHERE link_id = ?
+		GROUP BY name
+		ORDER BY count DESC
+		LIMIT 5
+	`
+	rows, err := r.db.Query(query, linkID)
+	if err != nil {
+		return []models.AnalyticsBreakdownItem{}
+	}
+	defer rows.Close()
+
+	var items []models.AnalyticsBreakdownItem
+	for rows.Next() {
+		var item models.AnalyticsBreakdownItem
+		if err := rows.Scan(&item.Name, &item.Count); err == nil {
+			item.Percentage = (float64(item.Count) / total) * 100
+			items = append(items, item)
+		}
+	}
+	return items
+}

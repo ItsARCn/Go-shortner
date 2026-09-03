@@ -6,18 +6,24 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/arc/go-shortener/internal/config"
 	"github.com/arc/go-shortener/internal/middleware"
 	"github.com/arc/go-shortener/internal/models"
 	"github.com/arc/go-shortener/internal/repository"
 	"github.com/arc/go-shortener/internal/service"
+	"github.com/arc/go-shortener/internal/validator"
 )
 
 type AuthHandler struct {
 	authService *service.AuthService
+	cfg         *config.Config
 }
 
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+func NewAuthHandler(authService *service.AuthService, cfg *config.Config) *AuthHandler {
+	return &AuthHandler{
+		authService: authService,
+		cfg:         cfg,
+	}
 }
 
 // HandleRegister handles POST /api/auth/register
@@ -35,6 +41,14 @@ func (h *AuthHandler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 	clientIP := middleware.ClientIP(r)
 	userAgent := r.Header.Get("User-Agent")
+
+	if h.cfg != nil {
+		turnstileToken := r.Header.Get("X-Turnstile-Token")
+		if err := validator.VerifyTurnstileToken(h.cfg.TurnstileSecretKey, clientIP, turnstileToken, h.cfg.TurnstileEnabled); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
 	resp, err := h.authService.Register(req, clientIP, userAgent)
 	if err != nil {
@@ -77,6 +91,45 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			writeJSONError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	setSessionCookie(w, resp.Token)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// HandleGoogleLogin handles POST /api/auth/google
+func (h *AuthHandler) HandleGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req models.GoogleLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	clientIP := middleware.ClientIP(r)
+	userAgent := r.Header.Get("User-Agent")
+
+	if h.cfg != nil && req.TurnstileToken != "" {
+		if err := validator.VerifyTurnstileToken(h.cfg.TurnstileSecretKey, clientIP, req.TurnstileToken, h.cfg.TurnstileEnabled); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	resp, err := h.authService.LoginWithGoogle(req.IDToken, clientIP, userAgent)
+	if err != nil {
+		if errors.Is(err, service.ErrAccountBanned) {
+			writeJSONError(w, http.StatusForbidden, err.Error())
 			return
 		}
 		writeJSONError(w, http.StatusBadRequest, err.Error())

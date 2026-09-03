@@ -44,8 +44,8 @@ func setupAuthUserServer(t *testing.T) (*httptest.Server, *service.AuthService, 
 	authSvc := service.NewAuthService(userRepo, cfg)
 	linkSvc := service.NewLinkService(linkRepo, cfg)
 
-	h := NewHandler(linkSvc)
-	authH := NewAuthHandler(authSvc)
+	h := NewHandler(linkSvc, cfg)
+	authH := NewAuthHandler(authSvc, cfg)
 	userH := NewUserHandler(linkSvc, authSvc)
 
 	mux := http.NewServeMux()

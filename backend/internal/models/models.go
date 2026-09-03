@@ -160,3 +160,30 @@ type DashboardResponse struct {
 	Page  int            `json:"page"`
 	Total int            `json:"total"`
 }
+
+// GoogleLoginRequest represents a Google authentication request
+type GoogleLoginRequest struct {
+	IDToken        string `json:"id_token"`
+	TurnstileToken string `json:"turnstile_token,omitempty"`
+}
+
+// AnalyticsBreakdownItem represents a category slice in click analytics
+type AnalyticsBreakdownItem struct {
+	Name       string  `json:"name"`
+	Count      int     `json:"count"`
+	Percentage float64 `json:"percentage"`
+}
+
+// LinkAnalyticsResponse provides privacy-conscious metrics for a single link
+type LinkAnalyticsResponse struct {
+	ShortCode        string                   `json:"short_code"`
+	DestinationURL   string                   `json:"destination_url"`
+	TotalClicks      int                      `json:"total_clicks"`
+	ClicksToday      int                      `json:"clicks_today"`
+	ClicksThisWeek   int                      `json:"clicks_this_week"`
+	ClicksThisMonth  int                      `json:"clicks_this_month"`
+	Devices          []AnalyticsBreakdownItem `json:"devices"`
+	Browsers         []AnalyticsBreakdownItem `json:"browsers"`
+	OperatingSystems []AnalyticsBreakdownItem `json:"operating_systems"`
+	TopReferrers     []AnalyticsBreakdownItem `json:"top_referrers"`
+}

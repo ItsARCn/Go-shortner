@@ -149,3 +149,10 @@ func scanUser(row *sql.Row) (*models.User, error) {
 
 	return &u, nil
 }
+
+// LinkGoogleAccount links a Firebase UID to an existing user account.
+func (r *UserRepository) LinkGoogleAccount(userID string, firebaseUID string) error {
+	query := `UPDATE users SET firebase_uid = ?, auth_provider = 'google', updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	_, err := r.db.Exec(query, firebaseUID, userID)
+	return err
+}

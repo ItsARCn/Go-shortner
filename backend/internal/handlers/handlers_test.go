@@ -31,16 +31,16 @@ func setupTestServer(t *testing.T) (*httptest.Server, *repository.LinkRepository
 	}
 
 	cfg := &config.Config{
-		BaseURL:                    "http://test.local",
-		AnonymousDailyQuota:        3, // Small quota for testing
-		RegisteredMonthlyQuota:     100,
-		AnonymousMaxExpirationDays: 7,
+		BaseURL:                     "http://test.local",
+		AnonymousDailyQuota:         3, // Small quota for testing
+		RegisteredMonthlyQuota:      100,
+		AnonymousMaxExpirationDays:  7,
 		RegisteredMaxExpirationDays: 365,
 	}
 
 	repo := repository.NewLinkRepository(db)
 	svc := service.NewLinkService(repo, cfg)
-	h := NewHandler(svc)
+	h := NewHandler(svc, cfg)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/links/shorten", h.HandleShorten)

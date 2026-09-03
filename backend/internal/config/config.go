@@ -8,21 +8,22 @@ import (
 )
 
 type Config struct {
-	Port                       string
-	Host                       string
-	BaseURL                    string
-	AppEnv                     string
-	DBPath                     string
-	JWTSecret                  string
-	AnonymousDailyQuota        int
-	RegisteredMonthlyQuota     int
-	AnonymousMaxExpirationDays int
+	Port                        string
+	Host                        string
+	BaseURL                     string
+	AppEnv                      string
+	DBPath                      string
+	JWTSecret                   string
+	AnonymousDailyQuota         int
+	RegisteredMonthlyQuota      int
+	AnonymousMaxExpirationDays  int
 	RegisteredMaxExpirationDays int
-	TurnstileEnabled           bool
-	TurnstileSiteKey           string
-	TurnstileSecretKey         string
-	AdminBootstrapEmail        string
-	AdminBootstrapPassword     string
+	TurnstileEnabled            bool
+	TurnstileSiteKey            string
+	TurnstileSecretKey          string
+	AdminBootstrapEmail         string
+	AdminBootstrapPassword      string
+	FirebaseProjectID           string
 }
 
 // Load reads configuration from environment variables, optionally reading a .env file first.
@@ -30,21 +31,22 @@ func Load(envFilePath string) *Config {
 	loadDotEnv(envFilePath)
 
 	cfg := &Config{
-		Port:                       getEnv("PORT", "3000"),
-		Host:                       getEnv("HOST", "127.0.0.1"),
-		BaseURL:                    getEnv("BASE_URL", "http://localhost:3000"),
-		AppEnv:                     getEnv("APP_ENV", "development"),
-		DBPath:                     getEnv("DB_PATH", "./data/go-dev.sqlite"),
-		JWTSecret:                  getEnv("JWT_SECRET", "change-me-super-secret-default-key-32-chars!"),
-		AnonymousDailyQuota:        getEnvInt("ANONYMOUS_DAILY_QUOTA", 15),
-		RegisteredMonthlyQuota:     getEnvInt("REGISTERED_MONTHLY_QUOTA", 100),
-		AnonymousMaxExpirationDays: getEnvInt("ANONYMOUS_MAX_EXPIRATION_DAYS", 7),
+		Port:                        getEnv("PORT", "3000"),
+		Host:                        getEnv("HOST", "127.0.0.1"),
+		BaseURL:                     getEnv("BASE_URL", "http://localhost:3000"),
+		AppEnv:                      getEnv("APP_ENV", "development"),
+		DBPath:                      getEnv("DB_PATH", "./data/go-dev.sqlite"),
+		JWTSecret:                   getEnv("JWT_SECRET", "change-me-super-secret-default-key-32-chars!"),
+		AnonymousDailyQuota:         getEnvInt("ANONYMOUS_DAILY_QUOTA", 15),
+		RegisteredMonthlyQuota:      getEnvInt("REGISTERED_MONTHLY_QUOTA", 100),
+		AnonymousMaxExpirationDays:  getEnvInt("ANONYMOUS_MAX_EXPIRATION_DAYS", 7),
 		RegisteredMaxExpirationDays: getEnvInt("REGISTERED_MAX_EXPIRATION_DAYS", 365),
-		TurnstileEnabled:           getEnvBool("TURNSTILE_ENABLED", false),
-		TurnstileSiteKey:           getEnv("TURNSTILE_SITE_KEY", ""),
-		TurnstileSecretKey:         getEnv("TURNSTILE_SECRET_KEY", ""),
-		AdminBootstrapEmail:        getEnv("ADMIN_BOOTSTRAP_EMAIL", "admin@example.com"),
-		AdminBootstrapPassword:     getEnv("ADMIN_BOOTSTRAP_PASSWORD", ""),
+		TurnstileEnabled:            getEnvBool("TURNSTILE_ENABLED", false),
+		TurnstileSiteKey:            getEnv("TURNSTILE_SITE_KEY", ""),
+		TurnstileSecretKey:          getEnv("TURNSTILE_SECRET_KEY", ""),
+		AdminBootstrapEmail:         getEnv("ADMIN_BOOTSTRAP_EMAIL", "admin@example.com"),
+		AdminBootstrapPassword:      getEnv("ADMIN_BOOTSTRAP_PASSWORD", ""),
+		FirebaseProjectID:           getEnv("FIREBASE_PROJECT_ID", "dev"),
 	}
 
 	return cfg

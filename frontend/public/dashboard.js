@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const filterTabs = document.querySelectorAll('.filter-tab');
   const logoutBtn = document.getElementById('logout-btn');
 
-  // Modal elements
+  // Renew Modal elements
   const renewModal = document.getElementById('renew-modal');
   const closeRenewBtn = document.getElementById('close-renew-modal');
   const cancelRenewBtn = document.getElementById('cancel-renew-btn');
@@ -23,6 +23,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const renewForm = document.getElementById('renew-form');
   const renewExpiration = document.getElementById('renew-expiration');
   const confirmRenewBtn = document.getElementById('confirm-renew-btn');
+
+  // Analytics Modal elements
+  const analyticsModal = document.getElementById('analytics-modal');
+  const closeAnalyticsBtn = document.getElementById('close-analytics-modal');
+  const analyticsCode = document.getElementById('analytics-code');
+  const analyticsDest = document.getElementById('analytics-dest');
+  const metricTotal = document.getElementById('metric-total');
+  const metricToday = document.getElementById('metric-today');
+  const metricWeek = document.getElementById('metric-week');
+  const metricMonth = document.getElementById('metric-month');
+  const devicesList = document.getElementById('analytics-devices-list');
+  const browsersList = document.getElementById('analytics-browsers-list');
+  const osList = document.getElementById('analytics-os-list');
+  const referrersList = document.getElementById('analytics-referrers-list');
 
   // 1. Authenticate user
   try {
@@ -101,6 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <td style="color: var(--text-muted); font-size: 0.85rem;">${expDate}</td>
           <td style="text-align: right;">
             <div class="table-actions">
+              <button class="action-btn analytics-action-btn" data-code="${link.short_code}">Analytics</button>
               <button class="action-btn copy-action-btn" data-url="${fullShortURL}">Copy</button>
               ${isExpired ? `<button class="action-btn renew-action-btn" data-code="${link.short_code}">Renew</button>` : ''}
               <button class="action-btn delete-action-btn" data-code="${link.short_code}">Delete</button>
@@ -113,6 +128,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     linksTbody.innerHTML = rows;
 
     // Attach row events
+    document.querySelectorAll('.analytics-action-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const code = btn.getAttribute('data-code');
+        openAnalyticsModal(code);
+      });
+    });
+
     document.querySelectorAll('.copy-action-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         navigator.clipboard.writeText(btn.getAttribute('data-url'));
@@ -142,6 +164,64 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
   }
+
+  async function openAnalyticsModal(code) {
+    analyticsCode.textContent = `/${code}`;
+    analyticsDest.textContent = 'Loading analytics...';
+    metricTotal.textContent = '-';
+    metricToday.textContent = '-';
+    metricWeek.textContent = '-';
+    metricMonth.textContent = '-';
+    devicesList.innerHTML = '<div style="color:var(--text-dim); font-size:0.8rem;">Loading...</div>';
+    browsersList.innerHTML = '<div style="color:var(--text-dim); font-size:0.8rem;">Loading...</div>';
+    osList.innerHTML = '<div style="color:var(--text-dim); font-size:0.8rem;">Loading...</div>';
+    referrersList.innerHTML = '<div style="color:var(--text-dim); font-size:0.8rem;">Loading...</div>';
+
+    analyticsModal.classList.add('show');
+
+    try {
+      const res = await fetch(`/api/user/links/${code}/analytics`);
+      if (!res.ok) {
+        analyticsDest.textContent = 'Failed to load analytics data';
+        return;
+      }
+      const data = await res.json();
+      analyticsDest.textContent = `Destination: ${data.destination_url}`;
+      metricTotal.textContent = data.total_clicks.toLocaleString();
+      metricToday.textContent = data.clicks_today.toLocaleString();
+      metricWeek.textContent = data.clicks_this_week.toLocaleString();
+      metricMonth.textContent = data.clicks_this_month.toLocaleString();
+
+      devicesList.innerHTML = renderDistributionList(data.devices);
+      browsersList.innerHTML = renderDistributionList(data.browsers);
+      osList.innerHTML = renderDistributionList(data.operating_systems);
+      referrersList.innerHTML = renderDistributionList(data.top_referrers);
+    } catch (err) {
+      analyticsDest.textContent = 'Network error fetching analytics';
+    }
+  }
+
+  function renderDistributionList(items) {
+    if (!items || items.length === 0) {
+      return `<div style="color:var(--text-dim); font-size:0.8rem; padding: 0.5rem 0;">No click data recorded yet.</div>`;
+    }
+
+    return items.map(item => `
+      <div class="analytics-row">
+        <div class="analytics-row-header">
+          <span>${escapeHTML(item.name)}</span>
+          <span style="font-family:var(--font-mono); color:var(--text-muted);">${item.count} (${item.percentage.toFixed(0)}%)</span>
+        </div>
+        <div class="analytics-bar-bg">
+          <div class="analytics-bar-fill" style="width: ${item.percentage}%;"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  closeAnalyticsBtn.addEventListener('click', () => {
+    analyticsModal.classList.remove('show');
+  });
 
   async function deleteLink(code) {
     try {
