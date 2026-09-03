@@ -12,17 +12,38 @@ INSTALL_DIR="${GO_INSTALL_DIR:-/root/Go-shortner}"
 DATA_DIR="${INSTALL_DIR}/data"
 SERVICE_FILE="/etc/systemd/system/go-shortener.service"
 
-# Handle --uninstall shortcut
-if [ "$1" = "--uninstall" ]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [ -f "${SCRIPT_DIR}/uninstall.sh" ]; then
-        exec "${SCRIPT_DIR}/uninstall.sh" "$2"
-    elif [ -f "${INSTALL_DIR}/uninstall.sh" ]; then
-        exec "${INSTALL_DIR}/uninstall.sh" "$2"
-    else
-        echo "[ERROR] uninstall.sh script not found." >&2
+# Handle --uninstall and --purge shortcuts directly
+if [ "$1" = "--uninstall" ] || [ "$1" = "--purge" ] || [ "$2" = "--purge" ]; then
+    echo "=========================================="
+    echo "    GO Shortener Uninstaller              "
+    echo "=========================================="
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "[ERROR] Uninstaller must be run as root or with sudo." >&2
         exit 1
     fi
+    if systemctl is-active --quiet go-shortener.service 2>/dev/null; then
+        echo "[INFO] Stopping go-shortener service..."
+        systemctl stop go-shortener.service || true
+    fi
+    if systemctl is-enabled --quiet go-shortener.service 2>/dev/null; then
+        echo "[INFO] Disabling go-shortener service..."
+        systemctl disable go-shortener.service || true
+    fi
+    if [ -f "${SERVICE_FILE}" ]; then
+        echo "[INFO] Removing systemd service unit..."
+        rm -f "${SERVICE_FILE}"
+        systemctl daemon-reload
+        systemctl reset-failed || true
+    fi
+    if [ "$1" = "--purge" ] || [ "$2" = "--purge" ]; then
+        echo "[INFO] Purging ${INSTALL_DIR} completely..."
+        rm -rf "${INSTALL_DIR}"
+        echo "[SUCCESS] GO Shortener and all data have been completely purged."
+    else
+        rm -f "${INSTALL_DIR}/go-shortener"
+        echo "[SUCCESS] Safe uninstall complete. Configuration and database in ${INSTALL_DIR} kept."
+    fi
+    exit 0
 fi
 
 echo "=========================================="
