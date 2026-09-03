@@ -26,10 +26,10 @@ func setupTestDB(t *testing.T) (*LinkService, func()) {
 	}
 
 	cfg := &config.Config{
-		BaseURL:                    "https://go.arcn.online",
-		AnonymousDailyQuota:        15,
-		RegisteredMonthlyQuota:     100,
-		AnonymousMaxExpirationDays: 7,
+		BaseURL:                     "https://go.arcn.online",
+		AnonymousDailyQuota:         15,
+		RegisteredMonthlyQuota:      100,
+		AnonymousMaxExpirationDays:  7,
 		RegisteredMaxExpirationDays: 365,
 	}
 

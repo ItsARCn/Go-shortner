@@ -65,7 +65,6 @@ func migrate(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_links_owner_id ON links(owner_id);
 	CREATE INDEX IF NOT EXISTS idx_links_expires_at ON links(expires_at);
 	CREATE INDEX IF NOT EXISTS idx_links_status ON links(status);
-	CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at);
 
 	-- Users table
 	CREATE TABLE IF NOT EXISTS users (
@@ -184,7 +183,7 @@ func migrate(db *sql.DB) error {
 			var cid int
 			var name, ctype string
 			var notnull, pk int
-			var dflt *string
+			var dflt sql.NullString
 			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
 				if name == "deleted_at" {
 					hasDeletedAt = true
@@ -192,11 +191,14 @@ func migrate(db *sql.DB) error {
 			}
 		}
 		rows.Close()
-		if !hasDeletedAt {
-			_, _ = db.Exec("ALTER TABLE links ADD COLUMN deleted_at DATETIME;")
-			_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at);")
-		}
 	}
+
+	if !hasDeletedAt {
+		_, _ = db.Exec("ALTER TABLE links ADD COLUMN deleted_at DATETIME;")
+	}
+
+	// Ensure deleted_at index exists after column is guaranteed to exist
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at);")
 
 	return nil
 }
