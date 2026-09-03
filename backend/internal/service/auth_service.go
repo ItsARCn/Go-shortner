@@ -304,3 +304,9 @@ func (s *AuthService) LoginWithGoogle(idToken string, clientIP, userAgent string
 		User:  user,
 	}, nil
 }
+
+// RecordUnauthorizedAudit writes an unauthorized access attempt to the login_records security log.
+func (s *AuthService) RecordUnauthorizedAudit(email, method, clientIP, userAgent string) {
+	ipHash := hashIdentity(clientIP)
+	_ = s.userRepo.RecordLoginAttempt(email, method, "UNAUTHORIZED", ipHash, userAgent)
+}

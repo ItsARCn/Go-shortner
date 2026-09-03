@@ -422,3 +422,230 @@ func (r *LinkRepository) queryReferrers(linkID string, total float64) []models.A
 	}
 	return items
 }
+
+// CreateReport inserts an abuse report for a link.
+func (r *LinkRepository) CreateReport(id, linkID, shortCode, reason, details, reporterIPHash string) error {
+	query := `
+		INSERT INTO reports (id, link_id, short_code, reason, details, reporter_ip_hash, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+	`
+	_, err := r.db.Exec(query, id, linkID, shortCode, reason, details, reporterIPHash)
+	return err
+}
+
+// GetReports retrieves paginated abuse reports.
+func (r *LinkRepository) GetReports(status string, page, limit int) ([]models.ReportItem, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var whereClauses []string
+	var args []interface{}
+
+	if status != "" && status != "all" {
+		whereClauses = append(whereClauses, "r.status = ?")
+		args = append(args, status)
+	}
+
+	whereSQL := ""
+	if len(whereClauses) > 0 {
+		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM reports r %s", whereSQL)
+	var total int
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT r.id, r.link_id, r.short_code, COALESCE(l.destination_url, ''), r.reason, COALESCE(r.details, ''), r.reporter_ip_hash, r.status, r.created_at
+		FROM reports r
+		LEFT JOIN links l ON r.link_id = l.id
+		%s
+		ORDER BY r.created_at DESC
+		LIMIT ? OFFSET ?
+	`, whereSQL)
+
+	queryArgs := append(args, limit, offset)
+	rows, err := r.db.Query(query, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var reports []models.ReportItem
+	for rows.Next() {
+		var item models.ReportItem
+		err := rows.Scan(
+			&item.ID,
+			&item.LinkID,
+			&item.ShortCode,
+			&item.DestinationURL,
+			&item.Reason,
+			&item.Details,
+			&item.ReporterIPHash,
+			&item.Status,
+			&item.CreatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		reports = append(reports, item)
+	}
+
+	return reports, total, nil
+}
+
+// ResolveReport updates report status (e.g. reviewed, dismissed).
+func (r *LinkRepository) ResolveReport(reportID string, status string) error {
+	query := `UPDATE reports SET status = ? WHERE id = ?`
+	_, err := r.db.Exec(query, status, reportID)
+	return err
+}
+
+// AdminGetLinks lists all links across the platform with search, status filter, and report counts.
+func (r *LinkRepository) AdminGetLinks(search, status string, page, limit int) ([]models.AdminLinkItem, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var whereClauses []string
+	var args []interface{}
+
+	if search != "" {
+		whereClauses = append(whereClauses, "(l.short_code LIKE ? OR l.destination_url LIKE ? OR u.email LIKE ?)")
+		searchTerm := "%" + search + "%"
+		args = append(args, searchTerm, searchTerm, searchTerm)
+	}
+
+	if status != "" && status != "all" {
+		whereClauses = append(whereClauses, "l.status = ?")
+		args = append(args, strings.ToUpper(status))
+	}
+
+	whereSQL := ""
+	if len(whereClauses) > 0 {
+		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM links l
+		LEFT JOIN users u ON l.owner_id = u.id
+		%s
+	`, whereSQL)
+
+	var total int
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT l.id, l.short_code, l.destination_url, COALESCE(u.email, 'Anonymous'),
+		       l.created_at, l.expires_at, l.status, l.auto_renew, l.click_count,
+		       (SELECT COUNT(*) FROM reports r WHERE r.link_id = l.id) as report_count
+		FROM links l
+		LEFT JOIN users u ON l.owner_id = u.id
+		%s
+		ORDER BY l.created_at DESC
+		LIMIT ? OFFSET ?
+	`, whereSQL)
+
+	queryArgs := append(args, limit, offset)
+	rows, err := r.db.Query(query, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var links []models.AdminLinkItem
+	for rows.Next() {
+		var item models.AdminLinkItem
+		var statusStr string
+		err := rows.Scan(
+			&item.ID,
+			&item.ShortCode,
+			&item.DestinationURL,
+			&item.OwnerEmail,
+			&item.CreatedAt,
+			&item.ExpiresAt,
+			&statusStr,
+			&item.AutoRenew,
+			&item.ClickCount,
+			&item.ReportCount,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		item.Status = models.LinkStatus(statusStr)
+		links = append(links, item)
+	}
+
+	return links, total, nil
+}
+
+// AdminSetLinkStatus overrides status of any link (e.g. DISABLED, ACTIVE, DELETED).
+func (r *LinkRepository) AdminSetLinkStatus(shortCode string, status models.LinkStatus) error {
+	query := `UPDATE links SET status = ? WHERE short_code = ?`
+	res, err := r.db.Exec(query, string(status), shortCode)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ErrLinkNotFound
+	}
+	return nil
+}
+
+// BulkDisableUserLinks disables all active links belonging to a user (used during banning).
+func (r *LinkRepository) BulkDisableUserLinks(ownerID string) error {
+	query := `UPDATE links SET status = 'DISABLED' WHERE owner_id = ? AND status = 'ACTIVE'`
+	_, err := r.db.Exec(query, ownerID)
+	return err
+}
+
+// CheckUserRestriction checks if a user is currently timed out or banned.
+func (r *LinkRepository) CheckUserRestriction(userID string) (bool, string, *time.Time, error) {
+	query := `SELECT status, timeout_until, timeout_reason, ban_reason FROM users WHERE id = ?`
+	var status string
+	var timeoutUntil sql.NullTime
+	var timeoutReason, banReason sql.NullString
+
+	err := r.db.QueryRow(query, userID).Scan(&status, &timeoutUntil, &timeoutReason, &banReason)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, "", nil, nil
+		}
+		return false, "", nil, err
+	}
+
+	if status == "banned" {
+		reason := "Account has been suspended"
+		if banReason.Valid && banReason.String != "" {
+			reason = fmt.Sprintf("Account suspended: %s", banReason.String)
+		}
+		return true, reason, nil, nil
+	}
+
+	if status == "timed_out" && timeoutUntil.Valid {
+		if time.Now().UTC().Before(timeoutUntil.Time) {
+			reason := "Account is temporarily restricted"
+			if timeoutReason.Valid && timeoutReason.String != "" {
+				reason = fmt.Sprintf("Account restricted until %s: %s", timeoutUntil.Time.Format("2006-01-02 15:04:05 UTC"), timeoutReason.String)
+			}
+			return true, reason, &timeoutUntil.Time, nil
+		}
+	}
+
+	return false, "", nil, nil
+}

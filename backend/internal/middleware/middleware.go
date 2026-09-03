@@ -192,3 +192,72 @@ func GetUserFromContext(ctx context.Context) *models.TokenClaims {
 	}
 	return nil
 }
+
+// RequireRole enforces role-based access control (super_admin or moderator).
+// If unauthorized, an audit record is logged and HTTP 403 is returned.
+func RequireRole(authService *service.AuthService, minRole models.UserRole, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := ExtractToken(r)
+		if tokenStr == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"Authentication required"}`))
+			return
+		}
+
+		claims, err := authService.VerifyToken(tokenStr)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"Invalid or expired session"}`))
+			return
+		}
+
+		user, err := authService.GetUserByID(claims.UserID)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"User account not found"}`))
+			return
+		}
+
+		isAllowed := false
+		if user.Role == models.RoleSuperAdmin {
+			isAllowed = true
+		} else if user.Role == models.RoleModerator && minRole != models.RoleSuperAdmin {
+			isAllowed = true
+		}
+
+		if !isAllowed {
+			clientIP := ClientIP(r)
+			userAgent := r.Header.Get("User-Agent")
+			authService.RecordUnauthorizedAudit(user.Email, "admin_access", clientIP, userAgent)
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":"You are not authorized to access the admin panel"}`))
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), UserContextKey, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// Recoverer catches panics gracefully.
+func Recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rvr := recover(); rvr != nil {
+				log.Printf("[PANIC] recovered: %v", rvr)
+				http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Logger is an alias for LoggingMiddleware.
+func Logger(next http.Handler) http.Handler {
+	return LoggingMiddleware(next)
+}

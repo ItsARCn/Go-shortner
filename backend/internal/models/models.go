@@ -187,3 +187,87 @@ type LinkAnalyticsResponse struct {
 	OperatingSystems []AnalyticsBreakdownItem `json:"operating_systems"`
 	TopReferrers     []AnalyticsBreakdownItem `json:"top_referrers"`
 }
+
+// CreateReportRequest holds payload for reporting link abuse
+type CreateReportRequest struct {
+	ShortCode string `json:"short_code"`
+	Reason    string `json:"reason"` // "phishing", "malware", "scam", "spam", "illegal", "other"
+	Details   string `json:"details"`
+}
+
+// ReportItem represents an abuse report row
+type ReportItem struct {
+	ID             string    `json:"id"`
+	LinkID         string    `json:"link_id"`
+	ShortCode      string    `json:"short_code"`
+	DestinationURL string    `json:"destination_url"`
+	Reason         string    `json:"reason"`
+	Details        string    `json:"details"`
+	ReporterIPHash string    `json:"reporter_ip_hash"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// AdminOverviewStats aggregates system-wide counts for the admin dashboard
+type AdminOverviewStats struct {
+	TotalUsers    int `json:"total_users"`
+	TotalLinks    int `json:"total_links"`
+	ActiveLinks   int `json:"active_links"`
+	ExpiredLinks  int `json:"expired_links"`
+	ReportsCount  int `json:"reports_count"`
+	BannedUsers   int `json:"banned_users"`
+	TimedOutUsers int `json:"timed_out_users"`
+}
+
+// AdminUserItem represents a user in the admin user list
+type AdminUserItem struct {
+	ID           string     `json:"id"`
+	FirstName    string     `json:"first_name"`
+	LastName     string     `json:"last_name"`
+	Email        string     `json:"email"`
+	AuthProvider string     `json:"auth_provider"`
+	Role         UserRole   `json:"role"`
+	Status       UserStatus `json:"status"`
+	TimeoutUntil *time.Time `json:"timeout_until,omitempty"`
+	LinkCount    int        `json:"link_count"`
+	QuotaLimit   int        `json:"quota_limit"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
+}
+
+// AdminLinkItem represents a link in the admin link moderation list
+type AdminLinkItem struct {
+	ID             string     `json:"id"`
+	ShortCode      string     `json:"short_code"`
+	DestinationURL string     `json:"destination_url"`
+	OwnerEmail     string     `json:"owner_email"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	Status         LinkStatus `json:"status"`
+	AutoRenew      bool       `json:"auto_renew"`
+	ClickCount     int        `json:"click_count"`
+	ReportCount    int        `json:"report_count"`
+}
+
+// TimeoutUserRequest holds duration and reason for a temporary timeout
+type TimeoutUserRequest struct {
+	Duration string `json:"duration"` // "30s", "1m", "5m", "30m", "1h", "6h", "12h", "1d", "3d", "7d"
+	Reason   string `json:"reason"`
+}
+
+// BanUserRequest holds reason and link deactivation flag for banning
+type BanUserRequest struct {
+	Reason       string `json:"reason"`
+	DisableLinks bool   `json:"disable_links"`
+}
+
+// LoginRecordItem represents a security audit event
+type LoginRecordItem struct {
+	ID           int       `json:"id"`
+	AccountEmail string    `json:"account_email"`
+	AuthMethod   string    `json:"auth_method"`
+	Result       string    `json:"result"`
+	IPHash       string    `json:"ip_hash"`
+	UserAgent    string    `json:"user_agent"`
+	CreatedAt    time.Time `json:"created_at"`
+}

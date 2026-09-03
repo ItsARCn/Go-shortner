@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Report Link Abuse - GO Shortener</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header>
+    <a href="/" class="brand">
+      <span>GO</span>
+      <span class="brand-badge">PRO</span>
+    </a>
+    <nav class="nav-links">
+      <a href="/" class="nav-link">Home</a>
+      <a href="/login" class="nav-link nav-btn">Sign In</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="auth-card" style="max-width: 520px;">
+      <div class="auth-header">
+        <h2 style="color: #fb7185;">Report Link Abuse</h2>
+        <p>Help us keep the platform safe by reporting phishing, malware, or illegal links.</p>
+      </div>
+
+      <div id="report-error" class="error-banner"></div>
+      <div id="report-success" style="display:none; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #34d399; padding: 1rem; border-radius: var(--radius-sm); margin-bottom: 1.5rem; font-size: 0.9rem;">
+        <strong>Thank you!</strong> Your abuse report has been submitted and queued for administrator review.
+      </div>
+
+      <form id="report-form">
+        <div class="input-group">
+          <label for="report-code">Short Code or Full URL</label>
+          <input type="text" id="report-code" class="url-input" placeholder="e.g. K8xP2q or https://go.arcn.online/K8xP2q" required autocomplete="off">
+        </div>
+
+        <div class="input-group">
+          <label for="report-reason">Violation Category</label>
+          <select id="report-reason" class="select-dropdown">
+            <option value="phishing" selected>Phishing / Credential Theft</option>
+            <option value="malware">Malware / Virus / Ransomware</option>
+            <option value="scam">Scam / Financial Fraud</option>
+            <option value="spam">Spam / Unsolicited Commercial</option>
+            <option value="illegal">Illegal or Prohibited Content</option>
+            <option value="other">Other Policy Violation</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label for="report-details">Additional Details (Optional)</label>
+          <textarea id="report-details" class="url-input" rows="4" style="resize: vertical; min-height: 80px;" placeholder="Provide any additional context or evidence..."></textarea>
+        </div>
+
+        <button type="submit" id="report-btn" class="shorten-btn" style="width: 100%; margin-top: 0.5rem; background: linear-gradient(135deg, #e11d48, #be123c);">
+          Submit Abuse Report
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <footer>
+    <div class="footer-copy">
+      &copy; 2026 GO Shortener. Zero tolerance for phishing, malware, and abuse.
+    </div>
+  </footer>
+
+  <script>
+    const form = document.getElementById('report-form');
+    const errEl = document.getElementById('report-error');
+    const succEl = document.getElementById('report-success');
+    const btn = document.getElementById('report-btn');
+
+    // Auto-fill code from query param if available (e.g. /report?code=xyz)
+    const urlParams = new URLSearchParams(window.location.search);
+    const codeParam = urlParams.get('code');
+    if (codeParam) {
+      document.getElementById('report-code').value = codeParam;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.classList.remove('show');
+      succEl.style.display = 'none';
+
+      let inputVal = document.getElementById('report-code').value.trim();
+      // Extract shortcode if full URL provided
+      if (inputVal.includes('/')) {
+        const parts = inputVal.split('/');
+        inputVal = parts[parts.length - 1];
+      }
+
+      const reason = document.getElementById('report-reason').value;
+      const details = document.getElementById('report-details').value.trim();
+
+      btn.disabled = true;
+      btn.textContent = 'Submitting report...';
+
+      try {
+        const res = await fetch('/api/reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            short_code: inputVal,
+            reason: reason,
+            details: details
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Failed to submit report';
+          errEl.classList.add('show');
+          return;
+        }
+
+        form.style.display = 'none';
+        succEl.style.display = 'block';
+      } catch (err) {
+        errEl.textContent = 'Network error while submitting report';
+        errEl.classList.add('show');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Submit Abuse Report';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -16,16 +16,23 @@ import (
 	"github.com/arc/go-shortener/internal/database"
 	"github.com/arc/go-shortener/internal/handlers"
 	"github.com/arc/go-shortener/internal/middleware"
+	"github.com/arc/go-shortener/internal/models"
 	"github.com/arc/go-shortener/internal/repository"
 	"github.com/arc/go-shortener/internal/service"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
 	// 1. Load config
 	cfg := config.Load(".env")
-	log.Printf("[INFO] Initializing GO Shortener in %s mode...", cfg.AppEnv)
 
-	// 2. Initialize database
+	// Ensure SQLite data directory exists
+	dbDir := filepath.Dir(cfg.DBPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		log.Fatalf("[FATAL] Failed to create database directory: %v", err)
+	}
+
+	// 2. Initialize Database & Migrations
 	db, err := database.InitDB(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to initialize SQLite database at %s: %v", cfg.DBPath, err)
@@ -39,10 +46,20 @@ func main() {
 
 	linkService := service.NewLinkService(linkRepo, cfg)
 	authService := service.NewAuthService(userRepo, cfg)
+	adminService := service.NewAdminService(userRepo, linkRepo)
+
+	// Bootstrap initial Super Admin if configured
+	if cfg.AdminBootstrapEmail != "" && cfg.AdminBootstrapPassword != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminBootstrapPassword), 12)
+		if err == nil {
+			_ = userRepo.EnsureSuperAdminBootstrap(cfg.AdminBootstrapEmail, string(hash))
+		}
+	}
 
 	h := handlers.NewHandler(linkService, cfg)
 	authHandler := handlers.NewAuthHandler(authService, cfg)
 	userHandler := handlers.NewUserHandler(linkService, authService)
+	adminHandler := handlers.NewAdminHandler(adminService)
 
 	// 4. Rate Limiter (30 requests/minute per IP for shortening, 15/min for auth)
 	shortenLimiter := middleware.NewRateLimiter(30, time.Minute)
@@ -55,6 +72,7 @@ func main() {
 	mux.HandleFunc("POST /api/links/shorten", middleware.OptionalAuth(authService, shortenLimiter.Limit(h.HandleShorten)))
 	mux.HandleFunc("GET /api/links/{code}/info", h.HandleGetInfo)
 	mux.HandleFunc("GET /api/health", h.HandleHealth)
+	mux.HandleFunc("POST /api/reports", shortenLimiter.Limit(adminHandler.HandlePublicReport))
 
 	// Auth API Endpoints
 	mux.HandleFunc("POST /api/auth/register", authLimiter.Limit(authHandler.HandleRegister))
@@ -69,6 +87,20 @@ func main() {
 	mux.HandleFunc("GET /api/user/links/{code}/analytics", middleware.RequireAuth(authService, userHandler.HandleLinkAnalytics))
 	mux.HandleFunc("POST /api/user/links/{code}/renew", middleware.RequireAuth(authService, userHandler.HandleRenewLink))
 	mux.HandleFunc("DELETE /api/user/links/{code}", middleware.RequireAuth(authService, userHandler.HandleDeleteLink))
+
+	// Admin API Endpoints (Protected by RBAC)
+	mux.HandleFunc("GET /api/admin/overview", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminOverview))
+	mux.HandleFunc("GET /api/admin/users", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminUsers))
+	mux.HandleFunc("POST /api/admin/users/{id}/timeout", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminTimeoutUser))
+	mux.HandleFunc("POST /api/admin/users/{id}/ban", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminBanUser))
+	mux.HandleFunc("POST /api/admin/users/{id}/unban", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminUnbanUser))
+	mux.HandleFunc("GET /api/admin/links", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminLinks))
+	mux.HandleFunc("POST /api/admin/links/{code}/disable", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminDisableLink))
+	mux.HandleFunc("POST /api/admin/links/{code}/enable", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminEnableLink))
+	mux.HandleFunc("DELETE /api/admin/links/{code}", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminDeleteLink))
+	mux.HandleFunc("GET /api/admin/reports", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminReports))
+	mux.HandleFunc("POST /api/admin/reports/{id}/resolve", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminResolveReport))
+	mux.HandleFunc("GET /api/admin/login-records", middleware.RequireRole(authService, models.RoleSuperAdmin, adminHandler.HandleAdminLoginRecords))
 
 	// Static Assets & Web Frontend
 	staticDir := "frontend/public"
@@ -89,6 +121,8 @@ func main() {
 	mux.HandleFunc("GET /login", serveHTML("login.html"))
 	mux.HandleFunc("GET /register", serveHTML("register.html"))
 	mux.HandleFunc("GET /dashboard", serveHTML("dashboard.html"))
+	mux.HandleFunc("GET /admin", serveHTML("admin.html"))
+	mux.HandleFunc("GET /report", serveHTML("report.html"))
 
 	// Homepage and catch-all for short links
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -108,38 +142,39 @@ func main() {
 		h.HandleRedirect(w, r)
 	})
 
-	// Wrap router with security headers and request logger
-	handler := middleware.LoggingMiddleware(middleware.SecurityHeaders(mux))
+	// Wrap global middleware
+	handler := middleware.Recoverer(mux)
+	handler = middleware.SecurityHeaders(handler)
+	handler = middleware.Logger(handler)
 
-	// 6. Server configuration
 	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
-	srv := &http.Server{
+	server := &http.Server{
 		Addr:         addr,
 		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
-	// 7. Start server in goroutine
+	// 6. Graceful Shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	go func() {
-		log.Printf("[INFO] Server listening on http://%s", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("[FATAL] Listen error: %v", err)
+		log.Printf("[INFO] GO Shortener server listening on http://%s (Base URL: %s)", addr, cfg.BaseURL)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[FATAL] Server failed: %v", err)
 		}
 	}()
 
-	// 8. Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
-
+	<-stop
 	log.Println("[INFO] Shutting down server gracefully...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("[ERROR] Server shutdown forced: %v", err)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("[ERROR] Server forced to shutdown: %v", err)
 	}
 
 	log.Println("[INFO] Server stopped.")
