@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statClicks = document.getElementById('stat-clicks');
   const statActive = document.getElementById('stat-active');
   const statExpired = document.getElementById('stat-expired');
+  const statBin = document.getElementById('stat-bin');
+  const binCountBadge = document.getElementById('bin-count-badge');
   const linksTbody = document.getElementById('links-tbody');
   const searchInput = document.getElementById('link-search');
   const filterTabs = document.querySelectorAll('.filter-tab');
@@ -89,15 +91,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     statClicks.textContent = stats.total_clicks.toLocaleString();
     statActive.textContent = stats.active_links.toLocaleString();
     statExpired.textContent = stats.expired_links.toLocaleString();
+    if (statBin) {
+      statBin.textContent = (stats.bin_links || 0).toLocaleString();
+    }
+    if (binCountBadge) {
+      if (stats.bin_links > 0) {
+        binCountBadge.textContent = stats.bin_links;
+        binCountBadge.style.display = 'inline-block';
+      } else {
+        binCountBadge.style.display = 'none';
+      }
+    }
   }
 
   function renderLinks(links) {
     if (!links || links.length === 0) {
-      linksTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-dim); padding: 3rem;">No shortened links found.</td></tr>`;
+      if (activeFilter === 'bin') {
+        linksTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--color-stone); padding: 3rem;">The Bin is empty. Deleted links stay here for 7 days before permanent removal.</td></tr>`;
+      } else {
+        linksTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--color-stone); padding: 3rem;">No shortened links found.</td></tr>`;
+      }
       return;
     }
 
     const rows = links.map(link => {
+      const fullShortURL = `${window.location.origin}/${link.short_code}`;
+
+      if (activeFilter === 'bin') {
+        const daysLeft = link.days_remaining_in_bin || 7;
+        const deletedDate = link.deleted_at ? new Date(link.deleted_at).toLocaleDateString(undefined, {
+          month: 'short', day: 'numeric', year: 'numeric'
+        }) : 'Recently';
+
+        return `
+          <tr>
+            <td>
+              <span class="link-code" style="opacity: 0.65;">/${escapeHTML(link.short_code)}</span>
+            </td>
+            <td>
+              <div class="dest-url" title="${escapeHTML(link.destination_url)}">${escapeHTML(link.destination_url)}</div>
+            </td>
+            <td><span class="click-chip">${link.click_count.toLocaleString()}</span></td>
+            <td><span class="badge-bin">⏳ ${daysLeft}d left</span></td>
+            <td style="color: var(--color-stone); font-size: 0.85rem;">Deleted ${deletedDate}</td>
+            <td style="text-align: right;">
+              <div class="table-actions">
+                <button class="action-btn restore-action-btn" data-code="${link.short_code}">Restore</button>
+                <button class="action-btn perm-delete-action-btn" data-code="${link.short_code}">Delete Forever</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+
       const isExpired = link.is_expired;
       let statusBadge = isExpired
         ? `<span class="badge-expired">EXPIRED</span>`
@@ -110,11 +156,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (link.auto_renew) {
-        statusBadge = `<span class="badge-active" style="background:rgba(99,102,241,0.2); color:#818cf8;">PERMANENT</span>`;
+        statusBadge = `<span class="badge-active" style="background:rgba(99,102,241,0.2); color:#818cf8; border-color: rgba(99,102,241,0.3);">PERMANENT</span>`;
         expText = 'Never (Auto-renew)';
       }
-
-      const fullShortURL = `${window.location.origin}/${link.short_code}`;
 
       return `
         <tr>
@@ -126,12 +170,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           </td>
           <td><span class="click-chip">${link.click_count.toLocaleString()}</span></td>
           <td>${statusBadge}</td>
-          <td style="color: var(--text-muted); font-size: 0.85rem;">${expText}</td>
+          <td style="color: var(--color-pearl); font-size: 0.85rem;">${expText}</td>
           <td style="text-align: right;">
             <div class="table-actions">
               <button class="action-btn analytics-action-btn" data-code="${link.short_code}">Analytics</button>
               <button class="action-btn copy-action-btn" data-url="${fullShortURL}">Copy</button>
-              ${!link.auto_renew && !isExpired ? `<button class="action-btn req-perm-action-btn" data-code="${link.short_code}" style="color:#818cf8;">Make Permanent</button>` : ''}
+              ${!link.auto_renew && !isExpired ? `<button class="action-btn req-perm-action-btn" data-code="${link.short_code}" style="color:#818cf8; border-color:rgba(99,102,241,0.3);">Make Permanent</button>` : ''}
               ${isExpired ? `<button class="action-btn renew-action-btn" data-code="${link.short_code}">Renew</button>` : ''}
               <button class="action-btn delete-action-btn" data-code="${link.short_code}">Delete</button>
             </div>
@@ -143,6 +187,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     linksTbody.innerHTML = rows;
 
     // Attach row events
+    document.querySelectorAll('.restore-action-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const code = btn.getAttribute('data-code');
+        btn.disabled = true;
+        btn.textContent = 'Restoring...';
+        try {
+          const res = await fetch(`/api/user/links/${code}/restore`, {
+            method: 'POST'
+          });
+          const data = await res.json();
+          if (res.ok) {
+            loadDashboard();
+          } else {
+            alert(data.error || 'Failed to restore link');
+            btn.disabled = false;
+            btn.textContent = 'Restore';
+          }
+        } catch (err) {
+          alert('Network error restoring link');
+          btn.disabled = false;
+          btn.textContent = 'Restore';
+        }
+      });
+    });
+
+    document.querySelectorAll('.perm-delete-action-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const code = btn.getAttribute('data-code');
+        if (!confirm(`Are you sure you want to permanently erase /${code}? This action cannot be undone.`)) {
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Deleting...';
+        try {
+          const res = await fetch(`/api/user/links/${code}/permanent`, {
+            method: 'DELETE'
+          });
+          const data = await res.json();
+          if (res.ok) {
+            loadDashboard();
+          } else {
+            alert(data.error || 'Failed to permanently delete link');
+            btn.disabled = false;
+            btn.textContent = 'Delete Forever';
+          }
+        } catch (err) {
+          alert('Network error deleting link');
+          btn.disabled = false;
+          btn.textContent = 'Delete Forever';
+        }
+      });
+    });
+
     document.querySelectorAll('.analytics-action-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const code = btn.getAttribute('data-code');
@@ -180,7 +277,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.delete-action-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const code = btn.getAttribute('data-code');
-        if (confirm(`Are you sure you want to delete /${code}? Redirection will stop immediately.`)) {
+        if (confirm(`Move /${code} to the Bin? You can recover it within 7 days.`)) {
           await deleteLink(code);
         }
       });

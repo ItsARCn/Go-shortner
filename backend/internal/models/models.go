@@ -20,6 +20,7 @@ type Link struct {
 	OwnerID        *string    `json:"owner_id,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	ExpiresAt      time.Time  `json:"expires_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 	Status         LinkStatus `json:"status"`
 	AutoRenew      bool       `json:"auto_renew"`
 	ClickCount     int        `json:"click_count"`
@@ -131,15 +132,22 @@ type RenewLinkRequest struct {
 
 // UserLinkItem represents a link row in the dashboard
 type UserLinkItem struct {
-	ID             string     `json:"id"`
-	ShortCode      string     `json:"short_code"`
-	DestinationURL string     `json:"destination_url"`
-	CreatedAt      time.Time  `json:"created_at"`
-	ExpiresAt      time.Time  `json:"expires_at"`
-	Status         LinkStatus `json:"status"`
-	AutoRenew      bool       `json:"auto_renew"`
-	ClickCount     int        `json:"click_count"`
-	IsExpired      bool       `json:"is_expired"`
+	ID                 string     `json:"id"`
+	ShortCode          string     `json:"short_code"`
+	DestinationURL     string     `json:"destination_url"`
+	CreatedAt          time.Time  `json:"created_at"`
+	ExpiresAt          time.Time  `json:"expires_at"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
+	DaysRemainingInBin *int       `json:"days_remaining_in_bin,omitempty"`
+	Status             LinkStatus `json:"status"`
+	AutoRenew          bool       `json:"auto_renew"`
+	ClickCount         int        `json:"click_count"`
+	IsExpired          bool       `json:"is_expired"`
+}
+
+// RestoreLinkRequest holds payload for restoring a deleted link from bin
+type RestoreLinkRequest struct {
+	ShortCode string `json:"short_code"`
 }
 
 // DashboardStats provides user analytics and quota usage
@@ -147,6 +155,7 @@ type DashboardStats struct {
 	TotalLinks     int `json:"total_links"`
 	ActiveLinks    int `json:"active_links"`
 	ExpiredLinks   int `json:"expired_links"`
+	BinLinks       int `json:"bin_links"`
 	TotalClicks    int `json:"total_clicks"`
 	QuotaUsed      int `json:"quota_used"`
 	QuotaLimit     int `json:"quota_limit"`

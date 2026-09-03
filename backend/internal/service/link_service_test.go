@@ -147,3 +147,78 @@ func TestAnonymousExpirationClamping(t *testing.T) {
 		t.Errorf("anonymous expiration was not clamped to 7 days: duration is %v", actualDuration)
 	}
 }
+
+func TestBinAndRestoreWithin7Days(t *testing.T) {
+	svc, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ownerID := "user-test-123"
+	req := models.ShortenRequest{
+		URL:        "https://example.com/bin-test",
+		Expiration: "30d",
+	}
+
+	resp, err := svc.Shorten(req, &ownerID, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("failed to shorten: %v", err)
+	}
+
+	// 1. Delete link -> moves to bin
+	err = svc.DeleteLink(resp.ShortCode, ownerID)
+	if err != nil {
+		t.Fatalf("failed to delete link: %v", err)
+	}
+
+	// 2. Resolve link should now fail because it's deleted
+	_, err = svc.Resolve(resp.ShortCode, "127.0.0.1", "", "test-agent")
+	if err != ErrLinkNotFound {
+		t.Fatalf("expected ErrLinkNotFound for deleted link, got: %v", err)
+	}
+
+	// 3. Check dashboard with status=bin
+	dash, err := svc.GetUserDashboard(ownerID, 100, "", "bin", 1, 20)
+	if err != nil {
+		t.Fatalf("failed to get bin links: %v", err)
+	}
+	if len(dash.Links) != 1 {
+		t.Fatalf("expected 1 link in bin, got: %d", len(dash.Links))
+	}
+	if dash.Links[0].ShortCode != resp.ShortCode {
+		t.Fatalf("expected short code %s in bin, got %s", resp.ShortCode, dash.Links[0].ShortCode)
+	}
+	if dash.Links[0].DaysRemainingInBin == nil || *dash.Links[0].DaysRemainingInBin < 1 {
+		t.Fatalf("expected valid days remaining in bin, got: %v", dash.Links[0].DaysRemainingInBin)
+	}
+
+	// 4. Restore link
+	err = svc.RestoreLink(resp.ShortCode, ownerID)
+	if err != nil {
+		t.Fatalf("failed to restore link: %v", err)
+	}
+
+	// 5. Resolve link should now succeed again
+	resTarget, err := svc.Resolve(resp.ShortCode, "127.0.0.1", "", "test-agent")
+	if err != nil {
+		t.Fatalf("expected resolved link to succeed after restore, got: %v", err)
+	}
+	if resTarget.DestinationURL != "https://example.com/bin-test" {
+		t.Fatalf("expected destination url https://example.com/bin-test, got: %s", resTarget.DestinationURL)
+	}
+
+	// 6. Delete again, then permanently delete
+	err = svc.DeleteLink(resp.ShortCode, ownerID)
+	if err != nil {
+		t.Fatalf("failed to delete link second time: %v", err)
+	}
+	err = svc.PermanentDeleteLink(resp.ShortCode, ownerID)
+	if err != nil {
+		t.Fatalf("failed to permanent delete link: %v", err)
+	}
+	dashAfterPurge, err := svc.GetUserDashboard(ownerID, 100, "", "bin", 1, 20)
+	if err != nil {
+		t.Fatalf("failed to get bin links after purge: %v", err)
+	}
+	if len(dashAfterPurge.Links) != 0 {
+		t.Fatalf("expected 0 links in bin after permanent deletion, got: %d", len(dashAfterPurge.Links))
+	}
+}

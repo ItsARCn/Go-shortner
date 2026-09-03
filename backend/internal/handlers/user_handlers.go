@@ -181,7 +181,100 @@ func (h *UserHandler) HandleDeleteLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Link deleted successfully"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Link moved to bin. Recoverable within 7 days."})
+}
+
+// HandleRestoreLink handles POST /api/user/links/restore or POST /api/user/links/{code}/restore
+func (h *UserHandler) HandleRestoreLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	code := r.PathValue("code")
+	if code == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 4 && parts[len(parts)-1] == "restore" {
+			code = parts[len(parts)-2]
+		}
+	}
+
+	if code == "" {
+		var req models.RestoreLinkRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			code = req.ShortCode
+		}
+	}
+
+	if code == "" {
+		writeJSONError(w, http.StatusBadRequest, "Short code is required")
+		return
+	}
+
+	err := h.linkService.RestoreLink(code, claims.UserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUnauthorized) {
+			writeJSONError(w, http.StatusForbidden, "You do not have permission to restore this link")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":    "Link restored successfully from bin",
+		"short_code": code,
+	})
+}
+
+// HandlePermanentDeleteLink handles DELETE /api/user/links/{code}/permanent
+func (h *UserHandler) HandlePermanentDeleteLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	code := r.PathValue("code")
+	if code == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 5 && parts[len(parts)-1] == "permanent" {
+			code = parts[len(parts)-2]
+		}
+	}
+
+	if code == "" {
+		writeJSONError(w, http.StatusBadRequest, "Short code is required")
+		return
+	}
+
+	err := h.linkService.PermanentDeleteLink(code, claims.UserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUnauthorized) {
+			writeJSONError(w, http.StatusForbidden, "You do not have permission to permanently delete this link")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":    "Link permanently deleted",
+		"short_code": code,
+	})
 }
 
 // HandleLinkAnalytics handles GET /api/user/links/{code}/analytics

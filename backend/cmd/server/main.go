@@ -91,6 +91,9 @@ func main() {
 	mux.HandleFunc("POST /api/user/links/{code}/renew", middleware.RequireAuth(authService, userHandler.HandleRenewLink))
 	mux.HandleFunc("POST /api/user/links/{code}/request-permanent", middleware.RequireAuth(authService, userHandler.HandleRequestPermanentLink))
 	mux.HandleFunc("DELETE /api/user/links/{code}", middleware.RequireAuth(authService, userHandler.HandleDeleteLink))
+	mux.HandleFunc("POST /api/user/links/restore", middleware.RequireAuth(authService, userHandler.HandleRestoreLink))
+	mux.HandleFunc("POST /api/user/links/{code}/restore", middleware.RequireAuth(authService, userHandler.HandleRestoreLink))
+	mux.HandleFunc("DELETE /api/user/links/{code}/permanent", middleware.RequireAuth(authService, userHandler.HandlePermanentDeleteLink))
 
 	// Admin API Endpoints (Protected by RBAC)
 	mux.HandleFunc("GET /api/admin/overview", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminOverview))
@@ -200,7 +203,21 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// 6. Graceful Shutdown
+	// 6. Background Cleanup Worker (purges bin links older than 7 days)
+	go func() {
+		if purged, err := linkRepo.PurgeExpiredBinLinks(); err == nil && purged > 0 {
+			log.Printf("[CLEANUP] Initial startup purged %d expired bin links (> 7 days)", purged)
+		}
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if purged, err := linkRepo.PurgeExpiredBinLinks(); err == nil && purged > 0 {
+				log.Printf("[CLEANUP] Hourly purged %d expired bin links (> 7 days)", purged)
+			}
+		}
+	}()
+
+	// 7. Graceful Shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 

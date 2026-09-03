@@ -178,18 +178,25 @@ func (r *LinkRepository) GetUserLinks(ownerID string, search string, filterStatu
 	var whereClauses []string
 	var args []interface{}
 
-	whereClauses = append(whereClauses, "owner_id = ?", "status != 'DELETED'")
+	whereClauses = append(whereClauses, "owner_id = ?")
 	args = append(args, ownerID)
+
+	isBinFilter := strings.EqualFold(filterStatus, "bin") || strings.EqualFold(filterStatus, "deleted")
+
+	if isBinFilter {
+		whereClauses = append(whereClauses, "status = 'DELETED'", "(deleted_at IS NULL OR deleted_at >= datetime('now', '-7 days'))")
+	} else {
+		whereClauses = append(whereClauses, "status != 'DELETED'")
+		if filterStatus != "" && !strings.EqualFold(filterStatus, "all") {
+			whereClauses = append(whereClauses, "status = ?")
+			args = append(args, strings.ToUpper(filterStatus))
+		}
+	}
 
 	if search != "" {
 		whereClauses = append(whereClauses, "(short_code LIKE ? OR destination_url LIKE ?)")
 		searchTerm := "%" + search + "%"
 		args = append(args, searchTerm, searchTerm)
-	}
-
-	if filterStatus != "" && filterStatus != "all" {
-		whereClauses = append(whereClauses, "status = ?")
-		args = append(args, strings.ToUpper(filterStatus))
 	}
 
 	whereSQL := strings.Join(whereClauses, " AND ")
@@ -201,10 +208,10 @@ func (r *LinkRepository) GetUserLinks(ownerID string, search string, filterStatu
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, short_code, destination_url, created_at, expires_at, status, auto_renew, click_count
+		SELECT id, short_code, destination_url, created_at, expires_at, deleted_at, status, auto_renew, click_count
 		FROM links
 		WHERE %s
-		ORDER BY created_at DESC
+		ORDER BY COALESCE(deleted_at, created_at) DESC
 		LIMIT ? OFFSET ?
 	`, whereSQL)
 
@@ -220,18 +227,30 @@ func (r *LinkRepository) GetUserLinks(ownerID string, search string, filterStatu
 	for rows.Next() {
 		var item models.UserLinkItem
 		var statusStr string
+		var deletedAt sql.NullTime
 		err := rows.Scan(
 			&item.ID,
 			&item.ShortCode,
 			&item.DestinationURL,
 			&item.CreatedAt,
 			&item.ExpiresAt,
+			&deletedAt,
 			&statusStr,
 			&item.AutoRenew,
 			&item.ClickCount,
 		)
 		if err != nil {
 			return nil, 0, err
+		}
+
+		if deletedAt.Valid {
+			item.DeletedAt = &deletedAt.Time
+			daysElapsed := int(now.Sub(deletedAt.Time).Hours() / 24)
+			rem := 7 - daysElapsed
+			if rem < 1 {
+				rem = 1
+			}
+			item.DaysRemainingInBin = &rem
 		}
 
 		item.Status = models.LinkStatus(statusStr)
@@ -272,12 +291,13 @@ func (r *LinkRepository) GetUserStats(ownerID string, quotaLimit int, monthWindo
 			COUNT(*) as total,
 			COALESCE(SUM(CASE WHEN (auto_renew = 1 OR expires_at > CURRENT_TIMESTAMP) AND status = 'ACTIVE' THEN 1 ELSE 0 END), 0) as active,
 			COALESCE(SUM(CASE WHEN auto_renew = 0 AND (expires_at <= CURRENT_TIMESTAMP OR status = 'EXPIRED') AND status != 'DELETED' THEN 1 ELSE 0 END), 0) as expired,
+			COALESCE(SUM(CASE WHEN status = 'DELETED' AND (deleted_at IS NULL OR deleted_at >= datetime('now', '-7 days')) THEN 1 ELSE 0 END), 0) as bin_links,
 			COALESCE(SUM(click_count), 0) as total_clicks
 		FROM links
-		WHERE owner_id = ? AND status != 'DELETED'
+		WHERE owner_id = ?
 	`
 	row := r.db.QueryRow(query, ownerID)
-	err = row.Scan(&stats.TotalLinks, &stats.ActiveLinks, &stats.ExpiredLinks, &stats.TotalClicks)
+	err = row.Scan(&stats.TotalLinks, &stats.ActiveLinks, &stats.ExpiredLinks, &stats.BinLinks, &stats.TotalClicks)
 	if err != nil {
 		return nil, err
 	}
@@ -308,11 +328,11 @@ func (r *LinkRepository) RenewLink(shortCode string, ownerID string, newExpiresA
 	return nil
 }
 
-// SoftDeleteLink marks a user's link as DELETED.
+// SoftDeleteLink marks a user's link as DELETED and timestamps deleted_at.
 func (r *LinkRepository) SoftDeleteLink(shortCode string, ownerID string) error {
 	query := `
 		UPDATE links
-		SET status = 'DELETED'
+		SET status = 'DELETED', deleted_at = CURRENT_TIMESTAMP
 		WHERE short_code = ? AND owner_id = ? AND status != 'DELETED'
 	`
 	res, err := r.db.Exec(query, shortCode, ownerID)
@@ -329,6 +349,79 @@ func (r *LinkRepository) SoftDeleteLink(shortCode string, ownerID string) error 
 	}
 
 	return nil
+}
+
+// RestoreLink recovers a link from the bin if it was deleted within 7 days.
+func (r *LinkRepository) RestoreLink(shortCode string, ownerID string) error {
+	var deletedAt sql.NullTime
+	var status string
+	err := r.db.QueryRow(
+		"SELECT status, deleted_at FROM links WHERE short_code = ? AND owner_id = ?",
+		shortCode, ownerID,
+	).Scan(&status, &deletedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrUnauthorized
+		}
+		return err
+	}
+
+	if status != "DELETED" {
+		return errors.New("link is not in the bin")
+	}
+
+	if deletedAt.Valid && time.Since(deletedAt.Time) > 7*24*time.Hour {
+		return errors.New("deleted links can only be recovered within 7 days of deletion")
+	}
+
+	query := `
+		UPDATE links
+		SET status = CASE WHEN auto_renew = 1 OR expires_at > CURRENT_TIMESTAMP THEN 'ACTIVE' ELSE 'EXPIRED' END,
+		    deleted_at = NULL
+		WHERE short_code = ? AND owner_id = ? AND status = 'DELETED'
+	`
+	res, err := r.db.Exec(query, shortCode, ownerID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
+// PermanentDeleteLink permanently removes a link from the bin.
+func (r *LinkRepository) PermanentDeleteLink(shortCode string, ownerID string) error {
+	query := `
+		DELETE FROM links
+		WHERE short_code = ? AND owner_id = ? AND status = 'DELETED'
+	`
+	res, err := r.db.Exec(query, shortCode, ownerID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
+// PurgeExpiredBinLinks deletes links from the bin that were deleted more than 7 days ago.
+func (r *LinkRepository) PurgeExpiredBinLinks() (int64, error) {
+	query := `DELETE FROM links WHERE status = 'DELETED' AND deleted_at IS NOT NULL AND deleted_at < datetime('now', '-7 days')`
+	res, err := r.db.Exec(query)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // GetLinkAnalytics aggregates click metrics for a link.

@@ -55,6 +55,7 @@ func migrate(db *sql.DB) error {
 		owner_id TEXT,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		expires_at DATETIME NOT NULL,
+		deleted_at DATETIME,
 		status TEXT NOT NULL DEFAULT 'ACTIVE',
 		auto_renew INTEGER NOT NULL DEFAULT 0,
 		click_count INTEGER NOT NULL DEFAULT 0
@@ -64,6 +65,7 @@ func migrate(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_links_owner_id ON links(owner_id);
 	CREATE INDEX IF NOT EXISTS idx_links_expires_at ON links(expires_at);
 	CREATE INDEX IF NOT EXISTS idx_links_status ON links(status);
+	CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at);
 
 	-- Users table
 	CREATE TABLE IF NOT EXISTS users (
@@ -171,6 +173,30 @@ func migrate(db *sql.DB) error {
 	);
 	`
 
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Backward compatibility: ensure deleted_at column exists in links table
+	var hasDeletedAt bool
+	if rows, err := db.Query("PRAGMA table_info(links);"); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt *string
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
+				if name == "deleted_at" {
+					hasDeletedAt = true
+				}
+			}
+		}
+		rows.Close()
+		if !hasDeletedAt {
+			_, _ = db.Exec("ALTER TABLE links ADD COLUMN deleted_at DATETIME;")
+			_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at);")
+		}
+	}
+
+	return nil
 }

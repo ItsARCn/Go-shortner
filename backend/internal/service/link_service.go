@@ -325,7 +325,7 @@ func (s *LinkService) RenewLink(shortCode string, ownerID string, expirationStr 
 	return link, nil
 }
 
-// DeleteLink soft-deletes a user's shortened link.
+// DeleteLink soft-deletes a user's shortened link into the 7-day recovery bin.
 func (s *LinkService) DeleteLink(shortCode string, ownerID string) error {
 	link, err := s.repo.GetLinkByCode(shortCode)
 	if err != nil {
@@ -337,6 +337,16 @@ func (s *LinkService) DeleteLink(shortCode string, ownerID string) error {
 	}
 
 	return s.repo.SoftDeleteLink(shortCode, ownerID)
+}
+
+// RestoreLink recovers a link from the bin if it was deleted within 7 days.
+func (s *LinkService) RestoreLink(shortCode string, ownerID string) error {
+	return s.repo.RestoreLink(shortCode, ownerID)
+}
+
+// PermanentDeleteLink permanently removes a link from the bin.
+func (s *LinkService) PermanentDeleteLink(shortCode string, ownerID string) error {
+	return s.repo.PermanentDeleteLink(shortCode, ownerID)
 }
 
 // GetUserDashboard fetches user quota, statistics, and paginated links.
