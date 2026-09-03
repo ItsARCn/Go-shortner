@@ -271,3 +271,33 @@ type LoginRecordItem struct {
 	UserAgent    string    `json:"user_agent"`
 	CreatedAt    time.Time `json:"created_at"`
 }
+
+// PermanentLinkRequestItem represents a user request to make a link permanent
+type PermanentLinkRequestItem struct {
+	ID             string     `json:"id"`
+	LinkID         string     `json:"link_id"`
+	ShortCode      string     `json:"short_code"`
+	DestinationURL string     `json:"destination_url"`
+	UserID         string     `json:"user_id"`
+	UserEmail      string     `json:"user_email"`
+	Reason         string     `json:"reason"`
+	Status         string     `json:"status"` // pending, approved, rejected
+	ReviewedBy     *string    `json:"reviewed_by,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ReviewedAt     *time.Time `json:"reviewed_at,omitempty"`
+}
+
+// CreatePermanentRequest holds user input for requesting permanent status
+type CreatePermanentRequest struct {
+	Reason string `json:"reason"`
+}
+
+// ResolvePermanentRequest holds admin decision on permanent link request
+type ResolvePermanentRequest struct {
+	Approved bool `json:"approved"`
+}
+
+// UpdateUserRoleRequest holds new role for a user
+type UpdateUserRoleRequest struct {
+	Role UserRole `json:"role"`
+}

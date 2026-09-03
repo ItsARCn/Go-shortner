@@ -50,6 +50,14 @@ func (s *LinkService) Shorten(req models.ShortenRequest, ownerID *string, client
 		return nil, err
 	}
 
+	// 2.5 Enforce User Restrictions (Timeout or Ban)
+	if ownerID != nil {
+		restricted, reason, _, err := s.repo.CheckUserRestriction(*ownerID)
+		if err == nil && restricted {
+			return nil, errors.New(reason)
+		}
+	}
+
 	// 3. Enforce Quotas
 	isAnonymous := (ownerID == nil)
 	if isAnonymous {
@@ -364,4 +372,33 @@ func (s *LinkService) GetLinkAnalytics(shortCode string, ownerID string) (*model
 	}
 
 	return s.repo.GetLinkAnalytics(link.ID, link.ShortCode, link.DestinationURL)
+}
+
+// RequestPermanentLink allows an authenticated link owner to request permanent status.
+func (s *LinkService) RequestPermanentLink(shortCode string, ownerID string, reason string) error {
+	restricted, restrReason, _, err := s.repo.CheckUserRestriction(ownerID)
+	if err == nil && restricted {
+		return errors.New(restrReason)
+	}
+
+	link, err := s.repo.GetLinkByCode(shortCode)
+	if err != nil {
+		return ErrLinkNotFound
+	}
+
+	if link.OwnerID == nil || *link.OwnerID != ownerID {
+		return repository.ErrUnauthorized
+	}
+
+	if link.AutoRenew {
+		return errors.New("this link is already permanent")
+	}
+
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return errors.New("please provide a reason for permanent status")
+	}
+
+	reqID := generateID()
+	return s.repo.CreatePermanentLinkRequest(reqID, link.ID, ownerID, reason)
 }

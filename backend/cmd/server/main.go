@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/arc/go-shortener/internal/config"
 	"github.com/arc/go-shortener/internal/database"
+	"github.com/arc/go-shortener/internal/embedded"
 	"github.com/arc/go-shortener/internal/handlers"
 	"github.com/arc/go-shortener/internal/middleware"
 	"github.com/arc/go-shortener/internal/models"
@@ -86,6 +88,7 @@ func main() {
 	mux.HandleFunc("GET /api/user/links", middleware.RequireAuth(authService, userHandler.HandleLinks))
 	mux.HandleFunc("GET /api/user/links/{code}/analytics", middleware.RequireAuth(authService, userHandler.HandleLinkAnalytics))
 	mux.HandleFunc("POST /api/user/links/{code}/renew", middleware.RequireAuth(authService, userHandler.HandleRenewLink))
+	mux.HandleFunc("POST /api/user/links/{code}/request-permanent", middleware.RequireAuth(authService, userHandler.HandleRequestPermanentLink))
 	mux.HandleFunc("DELETE /api/user/links/{code}", middleware.RequireAuth(authService, userHandler.HandleDeleteLink))
 
 	// Admin API Endpoints (Protected by RBAC)
@@ -94,27 +97,51 @@ func main() {
 	mux.HandleFunc("POST /api/admin/users/{id}/timeout", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminTimeoutUser))
 	mux.HandleFunc("POST /api/admin/users/{id}/ban", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminBanUser))
 	mux.HandleFunc("POST /api/admin/users/{id}/unban", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminUnbanUser))
+	mux.HandleFunc("POST /api/admin/users/{id}/role", middleware.RequireRole(authService, models.RoleSuperAdmin, adminHandler.HandleAdminUpdateUserRole))
 	mux.HandleFunc("GET /api/admin/links", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminLinks))
 	mux.HandleFunc("POST /api/admin/links/{code}/disable", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminDisableLink))
 	mux.HandleFunc("POST /api/admin/links/{code}/enable", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminEnableLink))
 	mux.HandleFunc("DELETE /api/admin/links/{code}", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminDeleteLink))
 	mux.HandleFunc("GET /api/admin/reports", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminReports))
 	mux.HandleFunc("POST /api/admin/reports/{id}/resolve", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminResolveReport))
+	mux.HandleFunc("GET /api/admin/permanent-requests", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminPermanentRequests))
+	mux.HandleFunc("POST /api/admin/permanent-requests/{id}/resolve", middleware.RequireRole(authService, models.RoleModerator, adminHandler.HandleAdminResolvePermanentRequest))
 	mux.HandleFunc("GET /api/admin/login-records", middleware.RequireRole(authService, models.RoleSuperAdmin, adminHandler.HandleAdminLoginRecords))
 
-	// Static Assets & Web Frontend
+	// Static Assets & Web Frontend (Transparent disk + embedded fallback for standalone binary)
 	staticDir := "frontend/public"
-	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+	hasLocalStatic := false
+	if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
+		hasLocalStatic = true
+	} else if info, err := os.Stat("../../frontend/public"); err == nil && info.IsDir() {
 		staticDir = "../../frontend/public"
+		hasLocalStatic = true
 	}
 
-	fs := http.FileServer(http.Dir(staticDir))
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", fs))
+	if hasLocalStatic {
+		fs := http.FileServer(http.Dir(staticDir))
+		mux.Handle("GET /assets/", http.StripPrefix("/assets/", fs))
+	} else {
+		mux.Handle("GET /assets/", http.StripPrefix("/assets/", embedded.GetFileServer()))
+	}
 
 	// Specific Page Routes
 	serveHTML := func(filename string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, filepath.Join(staticDir, filename))
+			if hasLocalStatic {
+				diskPath := filepath.Join(staticDir, filename)
+				if _, err := os.Stat(diskPath); err == nil {
+					http.ServeFile(w, r, diskPath)
+					return
+				}
+			}
+			content, err := embedded.ReadFile(filename)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(content)
 		}
 	}
 
@@ -128,14 +155,30 @@ func main() {
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
-			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
-			return
+			if hasLocalStatic {
+				http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+				return
+			}
+			content, err := embedded.ReadFile("index.html")
+			if err == nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write(content)
+				return
+			}
 		}
-		// If requesting a specific file that exists in staticDir
-		staticFilePath := filepath.Join(staticDir, path)
-		if info, err := os.Stat(staticFilePath); err == nil && !info.IsDir() {
-			http.ServeFile(w, r, staticFilePath)
-			return
+
+		// If requesting a specific static file
+		if hasLocalStatic {
+			staticFilePath := filepath.Join(staticDir, path)
+			if info, err := os.Stat(staticFilePath); err == nil && !info.IsDir() {
+				http.ServeFile(w, r, staticFilePath)
+				return
+			}
+		} else {
+			if content, err := embedded.ReadFile(path); err == nil {
+				http.ServeContent(w, r, path, time.Now(), bytes.NewReader(content))
+				return
+			}
 		}
 
 		// Otherwise, treat path as a short code (GET /{code})

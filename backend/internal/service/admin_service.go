@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 )
 
 var (
-	ErrInvalidDuration   = errors.New("invalid timeout duration")
+	ErrInvalidDuration     = errors.New("invalid timeout duration")
 	ErrInvalidReportReason = errors.New("invalid abuse report reason")
 	ErrCannotModerateAdmin = errors.New("super administrators cannot be restricted or banned")
 )
@@ -178,4 +177,30 @@ func parseTimeoutDuration(durStr string) (time.Duration, error) {
 		}
 		return d, nil
 	}
+}
+
+// ListPermanentRequests retrieves permanent link requests.
+func (s *AdminService) ListPermanentRequests(status string, page, limit int) ([]models.PermanentLinkRequestItem, int, error) {
+	return s.linkRepo.GetPermanentLinkRequests(status, page, limit)
+}
+
+// ResolvePermanentRequest approves or rejects a permanent request.
+func (s *AdminService) ResolvePermanentRequest(reqID string, approved bool, adminID string) error {
+	return s.linkRepo.ResolvePermanentLinkRequest(reqID, approved, adminID)
+}
+
+// UpdateUserRole changes a user's role (super_admin, moderator, user).
+func (s *AdminService) UpdateUserRole(adminID string, targetUserID string, newRole models.UserRole) error {
+	if adminID == targetUserID {
+		return errors.New("cannot change your own role")
+	}
+
+	validRoles := map[models.UserRole]bool{
+		models.RoleUser: true, models.RoleModerator: true, models.RoleSuperAdmin: true,
+	}
+	if !validRoles[newRole] {
+		return errors.New("invalid role")
+	}
+
+	return s.userRepo.UpdateUserRole(targetUserID, newRole)
 }

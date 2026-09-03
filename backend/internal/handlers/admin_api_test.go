@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,7 +42,6 @@ func setupAdminAPIServer(t *testing.T) (*httptest.Server, *service.AuthService, 
 	linkRepo := repository.NewLinkRepository(db)
 
 	authSvc := service.NewAuthService(userRepo, cfg)
-	linkSvc := service.NewLinkService(linkRepo, cfg)
 	adminSvc := service.NewAdminService(userRepo, linkRepo)
 
 	adminH := NewAdminHandler(adminSvc)
@@ -73,15 +71,15 @@ func TestAdminAPIAccessControl(t *testing.T) {
 
 	// 1. Create a regular user
 	regUser := &models.User{
-		ID:           "regular-user",
-		FirstName:    "Reg",
-		LastName:     "User",
-		Email:        "regular@example.com",
-		Role:         models.RoleUser,
-		Status:       models.UserStatusActive,
-		QuotaLimit:   100,
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		ID:         "regular-user",
+		FirstName:  "Reg",
+		LastName:   "User",
+		Email:      "regular@example.com",
+		Role:       models.RoleUser,
+		Status:     models.UserStatusActive,
+		QuotaLimit: 100,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 	_ = userRepo.CreateUser(regUser)
 	regToken, _ := authSvc.GenerateToken(regUser)
@@ -107,15 +105,15 @@ func TestAdminAPIAccessControl(t *testing.T) {
 
 	// 4. Create super_admin
 	adminUser := &models.User{
-		ID:           "super-admin",
-		FirstName:    "Admin",
-		LastName:     "Boss",
-		Email:        "boss@example.com",
-		Role:         models.RoleSuperAdmin,
-		Status:       models.UserStatusActive,
-		QuotaLimit:   999999,
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		ID:         "super-admin",
+		FirstName:  "Admin",
+		LastName:   "Boss",
+		Email:      "boss@example.com",
+		Role:       models.RoleSuperAdmin,
+		Status:     models.UserStatusActive,
+		QuotaLimit: 999999,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 	_ = userRepo.CreateUser(adminUser)
 	adminToken, _ := authSvc.GenerateToken(adminUser)

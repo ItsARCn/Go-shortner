@@ -1,0 +1,19 @@
+[Unit]
+Description=GO Shortener - Minimal High-Performance URL Shortener
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/go-shortener
+ExecStart=/opt/go-shortener/go-shortener
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+# Security Hardening
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

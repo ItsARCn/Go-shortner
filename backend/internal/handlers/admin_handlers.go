@@ -328,3 +328,96 @@ func (h *AdminHandler) HandlePublicReport(w http.ResponseWriter, r *http.Request
 		"message": "Abuse report submitted. Thank you for helping keep the platform safe.",
 	})
 }
+
+// HandleAdminPermanentRequests handles GET /api/admin/permanent-requests
+func (h *AdminHandler) HandleAdminPermanentRequests(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	requests, total, err := h.adminService.ListPermanentRequests(status, page, 25)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to load permanent requests")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"requests": requests,
+		"total":    total,
+		"page":     page,
+	})
+}
+
+// HandleAdminResolvePermanentRequest handles POST /api/admin/permanent-requests/{id}/resolve
+func (h *AdminHandler) HandleAdminResolvePermanentRequest(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 4 {
+			id = parts[3]
+		}
+	}
+
+	var req models.ResolvePermanentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if err := h.adminService.ResolvePermanentRequest(id, req.Approved, claims.UserID); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	action := "rejected"
+	if req.Approved {
+		action = "approved (link is now permanent and will auto-renew indefinitely)"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message": "Permanent link request " + action,
+	})
+}
+
+// HandleAdminUpdateUserRole handles POST /api/admin/users/{id}/role
+func (h *AdminHandler) HandleAdminUpdateUserRole(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 4 {
+			id = parts[3]
+		}
+	}
+
+	var req models.UpdateUserRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if err := h.adminService.UpdateUserRole(claims.UserID, id, req.Role); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message": "User role updated successfully",
+	})
+}

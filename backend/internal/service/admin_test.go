@@ -115,8 +115,8 @@ func TestLinkModerationDisableAndEnable(t *testing.T) {
 	}
 
 	// Resolution should now succeed
-	dest, err := svc.Resolve(shortenResp.ShortCode, "127.0.0.1", "curl", "")
-	if err != nil || dest != "https://test-link.com" {
-		t.Errorf("expected resolution to https://test-link.com, got: %s, err: %v", dest, err)
+	resolvedLink, err := svc.Resolve(shortenResp.ShortCode, "127.0.0.1", "curl", "")
+	if err != nil || resolvedLink.DestinationURL != "https://test-link.com" {
+		t.Errorf("expected resolution to https://test-link.com, got: %v, err: %v", resolvedLink, err)
 	}
 }

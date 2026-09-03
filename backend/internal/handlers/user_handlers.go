@@ -222,3 +222,50 @@ func (h *UserHandler) HandleLinkAnalytics(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(analytics)
 }
+
+// HandleRequestPermanentLink handles POST /api/user/links/{code}/request-permanent
+func (h *UserHandler) HandleRequestPermanentLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	code := r.PathValue("code")
+	if code == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 4 {
+			code = parts[3]
+		}
+	}
+
+	var req models.CreatePermanentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if err := h.linkService.RequestPermanentLink(code, claims.UserID, req.Reason); err != nil {
+		if errors.Is(err, repository.ErrUnauthorized) {
+			writeJSONError(w, http.StatusForbidden, "You do not own this link")
+			return
+		}
+		if errors.Is(err, service.ErrLinkNotFound) {
+			writeJSONError(w, http.StatusNotFound, "Link not found")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message": "Permanent link request submitted successfully. An administrator will review it.",
+	})
+}

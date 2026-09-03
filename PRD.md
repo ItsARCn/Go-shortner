@@ -1819,6 +1819,61 @@ The final goal is:
 
 > **Build and test the complete GO Shortener locally first. Once everything works correctly, compile it into a lightweight standalone production application that can simply be installed on the VPS.**
 
+### 54.7 GitHub Actions Release Builds
+
+The project **must not require the developer's local device to compile the production binaries**.
+
+Create a GitHub Actions workflow such as:
+
+```text
+.github/
+└── workflows/
+    └── release.yml
+```
+
+The workflow should:
+
+1. Trigger when a Git tag such as `v1.0.0` is pushed.
+2. Set up the required Go version.
+3. Build the application on GitHub Actions.
+4. Produce Linux binaries for:
+
+   * `amd64`
+   * `arm64`
+5. Embed the frontend into the Go binary.
+6. Run the automated test suite before creating the release.
+7. Fail the release if tests fail.
+8. Create a GitHub Release containing the compiled binaries.
+9. Generate checksums for the binaries.
+10. Keep the source code, build environment, and production binaries separate.
+
+Example:
+
+```text
+GitHub repository
+       │
+       │ git tag v1.0.0
+       ▼
+GitHub Actions
+       │
+       ├── Tests
+       ├── Build linux/amd64
+       ├── Build linux/arm64
+       ├── Generate SHA256 checksums
+       └── Create GitHub Release
+                    │
+                    ├── go-shortener-linux-amd64
+                    └── go-shortener-linux-arm64
+```
+
+The production VPS should **download the appropriate precompiled binary from the GitHub Release** rather than compiling anything itself.
+
+This means your workflow is basically:
+
+**Code locally → test locally → push to GitHub → tag release → GitHub builds it → VPS downloads binary.** 🚀
+
+That's the setup I'd use.
+
 ---
 
 # FINAL PRODUCT

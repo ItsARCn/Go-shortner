@@ -618,10 +618,9 @@ func (r *LinkRepository) BulkDisableUserLinks(ownerID string) error {
 func (r *LinkRepository) CheckUserRestriction(userID string) (bool, string, *time.Time, error) {
 	query := `SELECT status, timeout_until, timeout_reason, ban_reason FROM users WHERE id = ?`
 	var status string
-	var timeoutUntil sql.NullTime
-	var timeoutReason, banReason sql.NullString
+	var timeoutUntilStr, timeoutReason, banReason sql.NullString
 
-	err := r.db.QueryRow(query, userID).Scan(&status, &timeoutUntil, &timeoutReason, &banReason)
+	err := r.db.QueryRow(query, userID).Scan(&status, &timeoutUntilStr, &timeoutReason, &banReason)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, "", nil, nil
@@ -637,15 +636,149 @@ func (r *LinkRepository) CheckUserRestriction(userID string) (bool, string, *tim
 		return true, reason, nil, nil
 	}
 
-	if status == "timed_out" && timeoutUntil.Valid {
-		if time.Now().UTC().Before(timeoutUntil.Time) {
+	if status == "timed_out" && timeoutUntilStr.Valid && timeoutUntilStr.String != "" {
+		tVal, parseErr := time.Parse(time.RFC3339, timeoutUntilStr.String)
+		if parseErr != nil {
+			tVal, _ = time.Parse("2006-01-02 15:04:05", timeoutUntilStr.String)
+		}
+		if time.Now().UTC().Before(tVal) {
 			reason := "Account is temporarily restricted"
 			if timeoutReason.Valid && timeoutReason.String != "" {
-				reason = fmt.Sprintf("Account restricted until %s: %s", timeoutUntil.Time.Format("2006-01-02 15:04:05 UTC"), timeoutReason.String)
+				reason = fmt.Sprintf("Account is temporarily restricted until %s: %s", tVal.Format("2006-01-02 15:04:05 UTC"), timeoutReason.String)
 			}
-			return true, reason, &timeoutUntil.Time, nil
+			return true, reason, &tVal, nil
 		}
 	}
 
 	return false, "", nil, nil
+}
+
+// CreatePermanentLinkRequest records a user's request for permanent auto-renew link status.
+func (r *LinkRepository) CreatePermanentLinkRequest(id, linkID, userID, reason string) error {
+	query := `
+		INSERT INTO permanent_link_requests (id, link_id, user_id, reason, status, created_at)
+		VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+	`
+	_, err := r.db.Exec(query, id, linkID, userID, reason)
+	return err
+}
+
+// GetPermanentLinkRequests retrieves paginated permanent link requests.
+func (r *LinkRepository) GetPermanentLinkRequests(status string, page, limit int) ([]models.PermanentLinkRequestItem, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var whereClauses []string
+	var args []interface{}
+
+	if status != "" && status != "all" {
+		whereClauses = append(whereClauses, "p.status = ?")
+		args = append(args, status)
+	}
+
+	whereSQL := ""
+	if len(whereClauses) > 0 {
+		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM permanent_link_requests p %s", whereSQL)
+	var total int
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT p.id, p.link_id, l.short_code, l.destination_url, p.user_id, u.email,
+		       p.reason, p.status, p.reviewed_by, p.created_at, p.reviewed_at
+		FROM permanent_link_requests p
+		JOIN links l ON p.link_id = l.id
+		JOIN users u ON p.user_id = u.id
+		%s
+		ORDER BY p.created_at DESC
+		LIMIT ? OFFSET ?
+	`, whereSQL)
+
+	queryArgs := append(args, limit, offset)
+	rows, err := r.db.Query(query, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var items []models.PermanentLinkRequestItem
+	for rows.Next() {
+		var item models.PermanentLinkRequestItem
+		var reviewedBy sql.NullString
+		var reviewedAt sql.NullTime
+
+		err := rows.Scan(
+			&item.ID,
+			&item.LinkID,
+			&item.ShortCode,
+			&item.DestinationURL,
+			&item.UserID,
+			&item.UserEmail,
+			&item.Reason,
+			&item.Status,
+			&reviewedBy,
+			&item.CreatedAt,
+			&reviewedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		if reviewedBy.Valid {
+			item.ReviewedBy = &reviewedBy.String
+		}
+		if reviewedAt.Valid {
+			item.ReviewedAt = &reviewedAt.Time
+		}
+
+		items = append(items, item)
+	}
+
+	return items, total, nil
+}
+
+// ResolvePermanentLinkRequest approves or rejects a permanent request.
+func (r *LinkRepository) ResolvePermanentLinkRequest(reqID string, approved bool, adminID string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	newStatus := "rejected"
+	if approved {
+		newStatus = "approved"
+	}
+
+	var adminVal interface{} = adminID
+	if adminID == "" {
+		adminVal = nil
+	}
+
+	updateReq := `UPDATE permanent_link_requests SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`
+	if _, err := tx.Exec(updateReq, newStatus, adminVal, reqID); err != nil {
+		return err
+	}
+
+	if approved {
+		updateLink := `
+			UPDATE links
+			SET auto_renew = 1, status = 'ACTIVE'
+			WHERE id = (SELECT link_id FROM permanent_link_requests WHERE id = ?)
+		`
+		if _, err := tx.Exec(updateLink, reqID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }

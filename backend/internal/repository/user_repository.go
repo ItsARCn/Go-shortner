@@ -263,7 +263,7 @@ func (r *UserRepository) SetUserTimeout(userID string, until *time.Time, reason 
 	}
 
 	query := `UPDATE users SET status = 'timed_out', timeout_until = ?, timeout_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-	_, err := r.db.Exec(query, until, reason, userID)
+	_, err := r.db.Exec(query, until.UTC().Format(time.RFC3339), reason, userID)
 	return err
 }
 
@@ -408,5 +408,12 @@ func (r *UserRepository) EnsureSuperAdminBootstrap(email, passwordHash string) e
 		) VALUES ('admin-bootstrap-1', 'System', 'Admin', ?, ?, 'email', 'super_admin', 'active', 999999, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`
 	_, err = r.db.Exec(query, strings.ToLower(strings.TrimSpace(email)), passwordHash)
+	return err
+}
+
+// UpdateUserRole updates a user's authorization role (e.g. super_admin, moderator, user).
+func (r *UserRepository) UpdateUserRole(userID string, role models.UserRole) error {
+	query := `UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	_, err := r.db.Exec(query, string(role), userID)
 	return err
 }
