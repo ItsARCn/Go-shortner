@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('shorten-form');
   const urlInput = document.getElementById('url-input');
   const expirationSelect = document.getElementById('expiration-select');
@@ -8,6 +8,40 @@ document.addEventListener('DOMContentLoaded', () => {
   const resultUrl = document.getElementById('result-url');
   const copyBtn = document.getElementById('copy-btn');
   const resultExpires = document.getElementById('result-expires');
+  const navLinksContainer = document.querySelector('.nav-links');
+  const cardNote = document.querySelector('.card-footer-note');
+
+  let currentUser = null;
+
+  // Check auth state
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.ok) {
+      currentUser = await res.json();
+      // Update nav
+      if (navLinksContainer) {
+        navLinksContainer.innerHTML = `
+          <a href="/dashboard" class="nav-link nav-btn">Dashboard (${currentUser.first_name})</a>
+        `;
+      }
+      // Add registered options to expiration dropdown
+      expirationSelect.innerHTML = `
+        <option value="1h">1 hour</option>
+        <option value="1d">1 day</option>
+        <option value="3d">3 days</option>
+        <option value="7d">7 days</option>
+        <option value="30d" selected>30 days (default)</option>
+        <option value="90d">3 months</option>
+        <option value="180d">6 months</option>
+        <option value="365d">1 year (Maximum)</option>
+      `;
+      if (cardNote) {
+        cardNote.textContent = `Logged in as ${currentUser.email} • 100 links / month`;
+      }
+    }
+  } catch (err) {
+    // Keep anonymous defaults
+  }
 
   function showError(msg) {
     errorBanner.textContent = msg;
@@ -63,7 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
       copyBtn.textContent = 'Copy';
       copyBtn.classList.remove('copied');
 
-      // Scroll into view if needed
       resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (err) {
       showError('Network error. Unable to reach server.');
@@ -84,7 +117,6 @@ document.addEventListener('DOMContentLoaded', () => {
         copyBtn.classList.remove('copied');
       }, 2500);
     } catch (err) {
-      // Fallback
       resultUrl.select();
       document.execCommand('copy');
       copyBtn.textContent = 'Copied!';

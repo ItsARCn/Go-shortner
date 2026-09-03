@@ -291,3 +291,63 @@ func parseUserAgent(ua string) (device, browser, osName string) {
 
 	return device, browser, osName
 }
+
+// RenewLink renews an expired link owned by the user, preserving the exact short code without consuming quota.
+func (s *LinkService) RenewLink(shortCode string, ownerID string, expirationStr string) (*models.Link, error) {
+	link, err := s.repo.GetLinkByCode(shortCode)
+	if err != nil {
+		return nil, ErrLinkNotFound
+	}
+
+	if link.OwnerID == nil || *link.OwnerID != ownerID {
+		return nil, repository.ErrUnauthorized
+	}
+
+	newExpiresAt, err := s.resolveExpiration(expirationStr, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.RenewLink(shortCode, ownerID, newExpiresAt); err != nil {
+		return nil, err
+	}
+
+	link.ExpiresAt = newExpiresAt
+	link.Status = models.StatusActive
+	return link, nil
+}
+
+// DeleteLink soft-deletes a user's shortened link.
+func (s *LinkService) DeleteLink(shortCode string, ownerID string) error {
+	link, err := s.repo.GetLinkByCode(shortCode)
+	if err != nil {
+		return ErrLinkNotFound
+	}
+
+	if link.OwnerID == nil || *link.OwnerID != ownerID {
+		return repository.ErrUnauthorized
+	}
+
+	return s.repo.SoftDeleteLink(shortCode, ownerID)
+}
+
+// GetUserDashboard fetches user quota, statistics, and paginated links.
+func (s *LinkService) GetUserDashboard(ownerID string, quotaLimit int, search, status string, page, limit int) (*models.DashboardResponse, error) {
+	monthWindow := time.Now().UTC().Format("2006-01")
+	stats, err := s.repo.GetUserStats(ownerID, quotaLimit, monthWindow)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user stats: %w", err)
+	}
+
+	links, total, err := s.repo.GetUserLinks(ownerID, search, status, page, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user links: %w", err)
+	}
+
+	return &models.DashboardResponse{
+		Stats: *stats,
+		Links: links,
+		Page:  page,
+		Total: total,
+	}, nil
+}

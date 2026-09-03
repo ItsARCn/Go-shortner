@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Account - GO Shortener</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header>
+    <a href="/" class="brand">
+      <span>GO</span>
+      <span class="brand-badge">PRO</span>
+    </a>
+    <nav class="nav-links">
+      <a href="/login" class="nav-link nav-btn">Sign In</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="auth-card">
+      <div class="auth-header">
+        <h2>Create an account</h2>
+        <p>Get 100 links/month, up to 1-year expiration, and full analytics.</p>
+      </div>
+
+      <div id="auth-error" class="error-banner"></div>
+
+      <form id="register-form">
+        <div style="display: flex; gap: 1rem;">
+          <div class="input-group" style="flex: 1;">
+            <label for="reg-first">First Name</label>
+            <input type="text" id="reg-first" class="url-input" placeholder="Alex" required autocomplete="given-name">
+          </div>
+          <div class="input-group" style="flex: 1;">
+            <label for="reg-last">Last Name</label>
+            <input type="text" id="reg-last" class="url-input" placeholder="Rivera" required autocomplete="family-name">
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="reg-email">Email Address</label>
+          <input type="email" id="reg-email" class="url-input" placeholder="name@example.com" required autocomplete="email">
+        </div>
+
+        <div class="input-group">
+          <label for="reg-password">Password (min 8 characters)</label>
+          <input type="password" id="reg-password" class="url-input" placeholder="••••••••" required minlength="8" autocomplete="new-password">
+        </div>
+
+        <div class="input-group">
+          <label for="reg-confirm">Confirm Password</label>
+          <input type="password" id="reg-confirm" class="url-input" placeholder="••••••••" required minlength="8" autocomplete="new-password">
+        </div>
+
+        <button type="submit" id="reg-btn" class="shorten-btn" style="width: 100%; margin-top: 0.5rem;">
+          Create Account
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        Already have an account? <a href="/login" class="auth-link">Sign in</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="footer-copy">
+      &copy; 2026 GO Shortener. Minimal. Fast. Controlled.
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('auth-error');
+      const btn = document.getElementById('reg-btn');
+      errEl.textContent = '';
+      errEl.classList.remove('show');
+
+      const firstName = document.getElementById('reg-first').value.trim();
+      const lastName = document.getElementById('reg-last').value.trim();
+      const email = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const confirmPassword = document.getElementById('reg-confirm').value;
+
+      if (password !== confirmPassword) {
+        errEl.textContent = 'Passwords do not match';
+        errEl.classList.add('show');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Creating account...';
+
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: firstName,
+            last_name: lastName,
+            email: email,
+            password: password,
+            confirm_password: confirmPassword
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Registration failed';
+          errEl.classList.add('show');
+          return;
+        }
+        window.location.href = '/dashboard';
+      } catch (err) {
+        errEl.textContent = 'Network error. Please try again.';
+        errEl.classList.add('show');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+      }
+    });
+  </script>
+</body>
+</html>

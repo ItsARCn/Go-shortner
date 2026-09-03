@@ -33,33 +33,62 @@ func main() {
 	defer db.Close()
 	log.Printf("[INFO] Connected to SQLite database: %s", cfg.DBPath)
 
-	// 3. Initialize repository, service, and handlers
+	// 3. Initialize repositories, services, and handlers
 	linkRepo := repository.NewLinkRepository(db)
+	userRepo := repository.NewUserRepository(db)
+
 	linkService := service.NewLinkService(linkRepo, cfg)
+	authService := service.NewAuthService(userRepo, cfg)
+
 	h := handlers.NewHandler(linkService)
+	authHandler := handlers.NewAuthHandler(authService)
+	userHandler := handlers.NewUserHandler(linkService, authService)
 
-	// 4. In-memory Rate Limiter (30 requests/minute per IP for shortening)
+	// 4. Rate Limiter (30 requests/minute per IP for shortening, 10/min for auth)
 	shortenLimiter := middleware.NewRateLimiter(30, time.Minute)
+	authLimiter := middleware.NewRateLimiter(15, time.Minute)
 
-	// 5. Setup Router (using enhanced Go 1.22+ pattern routing)
+	// 5. Setup Router (Go 1.22+ pattern routing)
 	mux := http.NewServeMux()
 
-	// API Endpoints
-	mux.HandleFunc("POST /api/links/shorten", shortenLimiter.Limit(h.HandleShorten))
+	// Public Core API Endpoints
+	mux.HandleFunc("POST /api/links/shorten", middleware.OptionalAuth(authService, shortenLimiter.Limit(h.HandleShorten)))
 	mux.HandleFunc("GET /api/links/{code}/info", h.HandleGetInfo)
 	mux.HandleFunc("GET /api/health", h.HandleHealth)
+
+	// Auth API Endpoints
+	mux.HandleFunc("POST /api/auth/register", authLimiter.Limit(authHandler.HandleRegister))
+	mux.HandleFunc("POST /api/auth/login", authLimiter.Limit(authHandler.HandleLogin))
+	mux.HandleFunc("POST /api/auth/logout", authHandler.HandleLogout)
+	mux.HandleFunc("GET /api/auth/me", middleware.RequireAuth(authService, authHandler.HandleMe))
+
+	// User API Endpoints (Protected)
+	mux.HandleFunc("GET /api/user/dashboard", middleware.RequireAuth(authService, userHandler.HandleDashboard))
+	mux.HandleFunc("GET /api/user/links", middleware.RequireAuth(authService, userHandler.HandleLinks))
+	mux.HandleFunc("POST /api/user/links/{code}/renew", middleware.RequireAuth(authService, userHandler.HandleRenewLink))
+	mux.HandleFunc("DELETE /api/user/links/{code}", middleware.RequireAuth(authService, userHandler.HandleDeleteLink))
 
 	// Static Assets & Web Frontend
 	staticDir := "frontend/public"
 	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		// Fallback for when running from backend/ directory
 		staticDir = "../../frontend/public"
 	}
 
 	fs := http.FileServer(http.Dir(staticDir))
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", fs))
 
-	// Homepage and catch-all
+	// Specific Page Routes
+	serveHTML := func(filename string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, filepath.Join(staticDir, filename))
+		}
+	}
+
+	mux.HandleFunc("GET /login", serveHTML("login.html"))
+	mux.HandleFunc("GET /register", serveHTML("register.html"))
+	mux.HandleFunc("GET /dashboard", serveHTML("dashboard.html"))
+
+	// Homepage and catch-all for short links
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {

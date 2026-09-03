@@ -42,10 +42,14 @@ func (h *Handler) HandleShorten(w http.ResponseWriter, r *http.Request) {
 
 	clientIP := middleware.ClientIP(r)
 
-	// In Phase 1, all requests are anonymous. In Phase 2, ownerID will be extracted from session context.
-	resp, err := h.linkService.Shorten(req, nil, clientIP)
+	var ownerID *string
+	if claims := middleware.GetUserFromContext(r.Context()); claims != nil {
+		ownerID = &claims.UserID
+	}
+
+	resp, err := h.linkService.Shorten(req, ownerID, clientIP)
 	if err != nil {
-		if errors.Is(err, service.ErrAnonymousQuotaMet) {
+		if errors.Is(err, service.ErrAnonymousQuotaMet) || errors.Is(err, service.ErrRegisteredQuotaMet) {
 			writeJSONError(w, http.StatusTooManyRequests, err.Error())
 			return
 		}
@@ -131,11 +135,11 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	runtime.ReadMemStats(&m)
 
 	resp := map[string]interface{}{
-		"status":         "healthy",
-		"uptime_seconds": int(time.Since(h.startTime).Seconds()),
+		"status":          "healthy",
+		"uptime_seconds":  int(time.Since(h.startTime).Seconds()),
 		"memory_alloc_mb": float64(m.Alloc) / 1024 / 1024,
-		"goroutines":     runtime.NumGoroutine(),
-		"timestamp":      time.Now().UTC().Format(time.RFC3339),
+		"goroutines":      runtime.NumGoroutine(),
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

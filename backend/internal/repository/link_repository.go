@@ -3,13 +3,17 @@ package repository
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/arc/go-shortener/internal/models"
 )
 
 var (
-	ErrLinkNotFound = errors.New("link not found")
+	ErrLinkNotFound  = errors.New("link not found")
 	ErrQuotaExceeded = errors.New("link creation quota exceeded for this period")
+	ErrUnauthorized  = errors.New("you do not have permission to manage this link")
 )
 
 type LinkRepository struct {
@@ -110,7 +114,6 @@ func (r *LinkRepository) CheckAndIncrementQuota(identityKey string, isAnonymous 
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			// No quota used yet in this window
 			insertQuery := `INSERT INTO quota_usage (identity_key, is_anonymous, window_start, count) VALUES (?, ?, ?, 1)`
 			_, err = tx.Exec(insertQuery, identityKey, isAnonymous, windowStart)
 			if err != nil {
@@ -141,7 +144,7 @@ func (r *LinkRepository) CheckAndIncrementQuota(identityKey string, isAnonymous 
 	return true, currentCount + 1, nil
 }
 
-// GetQuotaUsage returns current used count and total limit for an identity window.
+// GetQuotaUsage returns current used count for an identity window.
 func (r *LinkRepository) GetQuotaUsage(identityKey string, windowStart string) (int, error) {
 	query := `SELECT count FROM quota_usage WHERE identity_key = ? AND window_start = ?`
 	var count int
@@ -160,4 +163,170 @@ func (r *LinkRepository) UpdateLinkStatus(linkID string, status models.LinkStatu
 	query := `UPDATE links SET status = ? WHERE id = ?`
 	_, err := r.db.Exec(query, string(status), linkID)
 	return err
+}
+
+// GetUserLinks retrieves paginated links owned by a user with search and status filtering.
+func (r *LinkRepository) GetUserLinks(ownerID string, search string, filterStatus string, page int, limit int) ([]models.UserLinkItem, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var whereClauses []string
+	var args []interface{}
+
+	whereClauses = append(whereClauses, "owner_id = ?", "status != 'DELETED'")
+	args = append(args, ownerID)
+
+	if search != "" {
+		whereClauses = append(whereClauses, "(short_code LIKE ? OR destination_url LIKE ?)")
+		searchTerm := "%" + search + "%"
+		args = append(args, searchTerm, searchTerm)
+	}
+
+	if filterStatus != "" && filterStatus != "all" {
+		whereClauses = append(whereClauses, "status = ?")
+		args = append(args, strings.ToUpper(filterStatus))
+	}
+
+	whereSQL := strings.Join(whereClauses, " AND ")
+
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM links WHERE %s", whereSQL)
+	var total int
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, short_code, destination_url, created_at, expires_at, status, auto_renew, click_count
+		FROM links
+		WHERE %s
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`, whereSQL)
+
+	queryArgs := append(args, limit, offset)
+	rows, err := r.db.Query(query, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	now := time.Now().UTC()
+	var links []models.UserLinkItem
+	for rows.Next() {
+		var item models.UserLinkItem
+		var statusStr string
+		err := rows.Scan(
+			&item.ID,
+			&item.ShortCode,
+			&item.DestinationURL,
+			&item.CreatedAt,
+			&item.ExpiresAt,
+			&statusStr,
+			&item.AutoRenew,
+			&item.ClickCount,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		item.Status = models.LinkStatus(statusStr)
+		item.IsExpired = (!item.AutoRenew && now.After(item.ExpiresAt)) || item.Status == models.StatusExpired
+		links = append(links, item)
+	}
+
+	return links, total, nil
+}
+
+// GetUserStats calculates dashboard statistics for a user.
+func (r *LinkRepository) GetUserStats(ownerID string, quotaLimit int, monthWindow string) (*models.DashboardStats, error) {
+	stats := &models.DashboardStats{
+		QuotaLimit: quotaLimit,
+	}
+
+	// 1. Quota used in this month window
+	quotaKey := fmt.Sprintf("user:%s", ownerID)
+	used, err := r.GetQuotaUsage(quotaKey, monthWindow)
+	if err != nil {
+		return nil, err
+	}
+	stats.QuotaUsed = used
+
+	// 2. Days until month reset
+	now := time.Now().UTC()
+	// Next month first day
+	year, month, _ := now.Date()
+	firstOfNextMonth := time.Date(year, month+1, 1, 0, 0, 0, 0, time.UTC)
+	stats.DaysUntilReset = int(firstOfNextMonth.Sub(now).Hours() / 24)
+	if stats.DaysUntilReset < 1 {
+		stats.DaysUntilReset = 1
+	}
+
+	// 3. Link counts and clicks
+	query := `
+		SELECT 
+			COUNT(*) as total,
+			COALESCE(SUM(CASE WHEN (auto_renew = 1 OR expires_at > CURRENT_TIMESTAMP) AND status = 'ACTIVE' THEN 1 ELSE 0 END), 0) as active,
+			COALESCE(SUM(CASE WHEN auto_renew = 0 AND (expires_at <= CURRENT_TIMESTAMP OR status = 'EXPIRED') AND status != 'DELETED' THEN 1 ELSE 0 END), 0) as expired,
+			COALESCE(SUM(click_count), 0) as total_clicks
+		FROM links
+		WHERE owner_id = ? AND status != 'DELETED'
+	`
+	row := r.db.QueryRow(query, ownerID)
+	err = row.Scan(&stats.TotalLinks, &stats.ActiveLinks, &stats.ExpiredLinks, &stats.TotalClicks)
+	if err != nil {
+		return nil, err
+	}
+
+	return stats, nil
+}
+
+// RenewLink sets a new expiration timestamp for an expired link and activates it.
+func (r *LinkRepository) RenewLink(shortCode string, ownerID string, newExpiresAt time.Time) error {
+	query := `
+		UPDATE links
+		SET expires_at = ?, status = 'ACTIVE'
+		WHERE short_code = ? AND owner_id = ? AND status != 'DELETED'
+	`
+	res, err := r.db.Exec(query, newExpiresAt, shortCode, ownerID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return ErrUnauthorized
+	}
+
+	return nil
+}
+
+// SoftDeleteLink marks a user's link as DELETED.
+func (r *LinkRepository) SoftDeleteLink(shortCode string, ownerID string) error {
+	query := `
+		UPDATE links
+		SET status = 'DELETED'
+		WHERE short_code = ? AND owner_id = ? AND status != 'DELETED'
+	`
+	res, err := r.db.Exec(query, shortCode, ownerID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return ErrUnauthorized
+	}
+
+	return nil
 }

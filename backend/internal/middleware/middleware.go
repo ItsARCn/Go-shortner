@@ -1,13 +1,21 @@
 package middleware
 
 import (
+	"context"
 	"log"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/arc/go-shortener/internal/models"
+	"github.com/arc/go-shortener/internal/service"
 )
+
+type contextKey string
+
+const UserContextKey contextKey = "user_claims"
 
 // ClientIP extracts client IP, honoring Cloudflare tunnel and proxy headers safely.
 func ClientIP(r *http.Request) string {
@@ -54,8 +62,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 type RateLimiter struct {
 	mu      sync.Mutex
 	clients map[string]*clientBucket
-	rate    int           // tokens per window
-	window  time.Duration // window duration
+	rate    int
+	window  time.Duration
 }
 
 type clientBucket struct {
@@ -70,7 +78,6 @@ func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
 		window:  window,
 	}
 
-	// Periodic cleanup of stale clients every 10 minutes
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		for range ticker.C {
@@ -116,4 +123,72 @@ func (rl *RateLimiter) Limit(next http.HandlerFunc) http.HandlerFunc {
 		rl.mu.Unlock()
 		next.ServeHTTP(w, r)
 	}
+}
+
+// ExtractToken retrieves JWT from cookie or Authorization header.
+func ExtractToken(r *http.Request) string {
+	// 1. Check HTTP-only cookie first
+	if cookie, err := r.Cookie("go_session"); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+
+	// 2. Check Authorization Bearer header
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+
+	return ""
+}
+
+// RequireAuth enforces authenticated access and populates claims in context.
+func RequireAuth(authService *service.AuthService, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := ExtractToken(r)
+		if tokenStr == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"Authentication required"}`))
+			return
+		}
+
+		claims, err := authService.VerifyToken(tokenStr)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"Invalid or expired session"}`))
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), UserContextKey, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// OptionalAuth attaches claims to context if valid, otherwise proceeds anonymously.
+func OptionalAuth(authService *service.AuthService, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := ExtractToken(r)
+		if tokenStr != "" {
+			if claims, err := authService.VerifyToken(tokenStr); err == nil {
+				ctx := context.WithValue(r.Context(), UserContextKey, claims)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	}
+}
+
+// GetUserFromContext extracts token claims from request context if present.
+func GetUserFromContext(ctx context.Context) *models.TokenClaims {
+	if val := ctx.Value(UserContextKey); val != nil {
+		if claims, ok := val.(*models.TokenClaims); ok {
+			return claims
+		}
+	}
+	return nil
 }
