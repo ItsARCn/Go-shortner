@@ -195,20 +195,23 @@ func (h *AuthHandler) HandleFirebaseConfig(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if h.cfg == nil || h.cfg.FirebaseAPIKey == "" {
+	if h.cfg == nil {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"enabled": false,
+			"enabled":           false,
+			"turnstile_enabled": false,
 		})
 		return
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"enabled":              true,
+		"enabled":              h.cfg.FirebaseAPIKey != "",
 		"api_key":              h.cfg.FirebaseAPIKey,
 		"auth_domain":          h.cfg.FirebaseAuthDomain,
 		"project_id":           h.cfg.FirebaseProjectID,
 		"storage_bucket":       h.cfg.FirebaseStorageBucket,
 		"messaging_sender_id":  h.cfg.FirebaseMessagingSenderID,
 		"app_id":               h.cfg.FirebaseAppID,
+		"turnstile_enabled":    h.cfg.TurnstileEnabled,
+		"turnstile_site_key":   h.cfg.TurnstileSiteKey,
 	})
 }

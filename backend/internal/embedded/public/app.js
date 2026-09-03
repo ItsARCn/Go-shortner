@@ -43,6 +43,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Keep anonymous defaults
   }
 
+  let turnstileWidgetId = null;
+
+  // Load public Turnstile configuration if anonymous
+  fetch('/api/auth/firebase-config')
+    .then(r => r.json())
+    .then(cfg => {
+      if (cfg && cfg.turnstile_enabled && cfg.turnstile_site_key && !currentUser) {
+        const script = document.createElement('script');
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        script.async = true;
+        script.defer = true;
+        script.onload = () => {
+          if (window.turnstile) {
+            turnstileWidgetId = window.turnstile.render('#turnstile-container', {
+              sitekey: cfg.turnstile_site_key,
+              theme: 'auto'
+            });
+          }
+        };
+        document.head.appendChild(script);
+      }
+    })
+    .catch(() => {});
+
   function showError(msg) {
     errorBanner.textContent = msg;
     errorBanner.classList.add('show');
@@ -74,6 +98,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         expiration: expirationSelect.value
       };
 
+      if (turnstileWidgetId !== null && window.turnstile) {
+        payload.turnstile_token = window.turnstile.getResponse(turnstileWidgetId);
+      }
+
       const res = await fetch('/api/links/shorten', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -84,6 +112,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (!res.ok) {
         showError(data.error || 'Failed to shorten URL. Please try again.');
+        if (turnstileWidgetId !== null && window.turnstile) {
+          window.turnstile.reset(turnstileWidgetId);
+        }
         return;
       }
 
@@ -97,9 +128,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       copyBtn.textContent = 'Copy';
       copyBtn.classList.remove('copied');
 
+      if (turnstileWidgetId !== null && window.turnstile) {
+        window.turnstile.reset(turnstileWidgetId);
+      }
+
       resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (err) {
       showError('Network error. Unable to reach server.');
+      if (turnstileWidgetId !== null && window.turnstile) {
+        window.turnstile.reset(turnstileWidgetId);
+      }
     } finally {
       shortenBtn.disabled = false;
       shortenBtn.textContent = 'Shorten';
