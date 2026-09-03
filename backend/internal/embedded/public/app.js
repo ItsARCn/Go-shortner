@@ -45,24 +45,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let turnstileWidgetId = null;
 
+  function renderTurnstileWidget(siteKey) {
+    const container = document.getElementById('turnstile-container');
+    if (!container) return;
+
+    if (window.turnstile && typeof window.turnstile.render === 'function') {
+      try {
+        if (turnstileWidgetId === null) {
+          turnstileWidgetId = window.turnstile.render('#turnstile-container', {
+            sitekey: siteKey,
+            theme: 'dark'
+          });
+        }
+      } catch (e) {
+        console.warn('Turnstile render error:', e);
+      }
+    }
+  }
+
   // Load public Turnstile configuration if anonymous
   fetch('/api/auth/firebase-config')
     .then(r => r.json())
     .then(cfg => {
       if (cfg && cfg.turnstile_enabled && cfg.turnstile_site_key && !currentUser) {
-        const script = document.createElement('script');
-        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-        script.async = true;
-        script.defer = true;
-        script.onload = () => {
-          if (window.turnstile) {
-            turnstileWidgetId = window.turnstile.render('#turnstile-container', {
-              sitekey: cfg.turnstile_site_key,
-              theme: 'auto'
-            });
-          }
+        window.__cfTurnstileSiteKey = cfg.turnstile_site_key;
+        window.onTurnstileLoad = function() {
+          renderTurnstileWidget(window.__cfTurnstileSiteKey);
         };
-        document.head.appendChild(script);
+
+        if (window.turnstile && typeof window.turnstile.render === 'function') {
+          renderTurnstileWidget(cfg.turnstile_site_key);
+        } else {
+          const script = document.createElement('script');
+          script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit';
+          script.async = true;
+          script.defer = true;
+          document.head.appendChild(script);
+        }
       }
     })
     .catch(() => {});

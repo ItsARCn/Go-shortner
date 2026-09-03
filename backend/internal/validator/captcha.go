@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -44,7 +45,7 @@ func VerifyTurnstileToken(secretKey string, clientIP string, token string, enabl
 		"secret":   {secretKey},
 		"response": {token},
 	}
-	if clientIP != "" {
+	if clientIP != "" && clientIP != "127.0.0.1" && clientIP != "::1" && !strings.HasPrefix(clientIP, "192.168.") && !strings.HasPrefix(clientIP, "10.") && !strings.HasPrefix(clientIP, "172.") {
 		formData.Set("remoteip", clientIP)
 	}
 
