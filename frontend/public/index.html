@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GO - URL Shortener</title>
+  <meta name="description" content="Simple, fast, and secure URL shortening. No account required.">
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header>
+    <a href="/" class="brand">
+      <span>GO</span>
+      <span class="brand-badge">PRO</span>
+    </a>
+    <nav class="nav-links">
+      <a href="/login" class="nav-link">Login</a>
+      <a href="/register" class="nav-link nav-btn">Sign Up</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>Shorten your link</h1>
+      <p>Fast, privacy-conscious, and reliable redirection.</p>
+    </div>
+
+    <div class="shortener-card">
+      <div id="error-banner" class="error-banner"></div>
+
+      <form id="shorten-form">
+        <div class="input-group">
+          <label for="url-input">Destination URL</label>
+          <input 
+            type="url" 
+            id="url-input" 
+            class="url-input" 
+            placeholder="https://example.com/very/long/link/to/shorten" 
+            required 
+            autocomplete="off"
+            spellcheck="false"
+          >
+        </div>
+
+        <div class="controls-row">
+          <div class="select-wrapper">
+            <label for="expiration-select" style="display:block; font-size: 0.825rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem;">Expiration</label>
+            <select id="expiration-select" class="select-dropdown">
+              <option value="1h">1 hour</option>
+              <option value="1d">1 day</option>
+              <option value="3d">3 days</option>
+              <option value="7d" selected>7 days (default)</option>
+            </select>
+          </div>
+
+          <button type="submit" id="shorten-btn" class="shorten-btn">
+            Shorten
+          </button>
+        </div>
+      </form>
+
+      <div class="card-footer-note">
+        No account required • 15 links / 24 hrs
+      </div>
+
+      <div id="result-box" class="result-box">
+        <div class="result-header">Your shortened link</div>
+        <div class="result-input-wrap">
+          <input type="text" id="result-url" class="result-url" readonly>
+          <button type="button" id="copy-btn" class="copy-btn">Copy</button>
+        </div>
+        <div class="result-meta">
+          <span id="result-expires"></span>
+          <span>Anonymous link</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/login" class="footer-link">Login</a>
+      <a href="/register" class="footer-link">Sign Up</a>
+      <a href="/about" class="footer-link">About</a>
+      <a href="/terms" class="footer-link">Terms</a>
+      <a href="/privacy" class="footer-link">Privacy</a>
+      <a href="/report" class="footer-link">Report a Link</a>
+    </div>
+    <div class="footer-copy">
+      &copy; 2026 GO Shortener. Minimal. Fast. Controlled.
+    </div>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

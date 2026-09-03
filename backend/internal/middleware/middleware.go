@@ -1,0 +1,119 @@
+package middleware
+
+import (
+	"log"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ClientIP extracts client IP, honoring Cloudflare tunnel and proxy headers safely.
+func ClientIP(r *http.Request) string {
+	if cfIP := r.Header.Get("CF-Connecting-IP"); cfIP != "" {
+		return strings.TrimSpace(cfIP)
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		ip := strings.TrimSpace(parts[0])
+		if ip != "" {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// SecurityHeaders adds modern security headers to all responses.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// LoggingMiddleware logs incoming requests concisely.
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		if !strings.HasPrefix(r.URL.Path, "/assets/") {
+			log.Printf("%s %s %s (%s)", r.Method, r.URL.Path, ClientIP(r), time.Since(start))
+		}
+	})
+}
+
+// RateLimiter implements an in-memory token bucket per client IP.
+type RateLimiter struct {
+	mu      sync.Mutex
+	clients map[string]*clientBucket
+	rate    int           // tokens per window
+	window  time.Duration // window duration
+}
+
+type clientBucket struct {
+	tokens    int
+	lastReset time.Time
+}
+
+func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
+	rl := &RateLimiter{
+		clients: make(map[string]*clientBucket),
+		rate:    rate,
+		window:  window,
+	}
+
+	// Periodic cleanup of stale clients every 10 minutes
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		for range ticker.C {
+			rl.mu.Lock()
+			cutoff := time.Now().Add(-2 * window)
+			for ip, b := range rl.clients {
+				if b.lastReset.Before(cutoff) {
+					delete(rl.clients, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+
+	return rl
+}
+
+func (rl *RateLimiter) Limit(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := ClientIP(r)
+
+		rl.mu.Lock()
+		b, exists := rl.clients[ip]
+		now := time.Now()
+
+		if !exists || now.Sub(b.lastReset) > rl.window {
+			rl.clients[ip] = &clientBucket{
+				tokens:    rl.rate - 1,
+				lastReset: now,
+			}
+			rl.mu.Unlock()
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if b.tokens <= 0 {
+			rl.mu.Unlock()
+			http.Error(w, `{"error":"Too many requests. Please slow down."}`, http.StatusTooManyRequests)
+			return
+		}
+
+		b.tokens--
+		rl.mu.Unlock()
+		next.ServeHTTP(w, r)
+	}
+}

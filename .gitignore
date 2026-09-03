@@ -1,0 +1,38 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+go-shortener
+go-shortener-*
+
+# Go build & test artifacts
+*.test
+*.out
+
+# Data & SQLite
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+.npm/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
