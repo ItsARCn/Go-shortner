@@ -4,16 +4,31 @@ set -e
 # ==============================================================================
 # GO Shortener - Automated Production VPS Installer
 # Target Server: Ubuntu VPS (Ultra-lightweight, systemd, Zero Docker)
+# Default Location: /root/Go-shortner
 # ==============================================================================
 
 REPO="ItsARCn/Go-shortner"
-INSTALL_DIR="/opt/go-shortener"
+INSTALL_DIR="${GO_INSTALL_DIR:-/root/Go-shortner}"
 DATA_DIR="${INSTALL_DIR}/data"
 SERVICE_FILE="/etc/systemd/system/go-shortener.service"
+
+# Handle --uninstall shortcut
+if [ "$1" = "--uninstall" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "${SCRIPT_DIR}/uninstall.sh" ]; then
+        exec "${SCRIPT_DIR}/uninstall.sh" "$2"
+    elif [ -f "${INSTALL_DIR}/uninstall.sh" ]; then
+        exec "${INSTALL_DIR}/uninstall.sh" "$2"
+    else
+        echo "[ERROR] uninstall.sh script not found." >&2
+        exit 1
+    fi
+fi
 
 echo "=========================================="
 echo "    GO Shortener Production Installer     "
 echo "=========================================="
+echo "[INFO] Target Directory: ${INSTALL_DIR}"
 
 # 1. Require Root / Sudo
 if [ "$(id -u)" -ne 0 ]; then
@@ -38,16 +53,16 @@ esac
 
 echo "[INFO] Detected architecture: ${ARCH} (${BINARY_NAME})"
 
-# 3. Create Directories
+# 3. Automatically Create Target Directories
 mkdir -p "${INSTALL_DIR}"
 mkdir -p "${DATA_DIR}"
-chmod 755 "${INSTALL_DIR}"
-chmod 750 "${DATA_DIR}"
+chmod 700 "${INSTALL_DIR}"
+chmod 700 "${DATA_DIR}"
 
 # 4. Fetch or Install Binary
 TMP_BIN="/tmp/${BINARY_NAME}"
 
-if [ -f "$1" ]; then
+if [ -f "$1" ] && [ "$1" != "--uninstall" ]; then
     echo "[INFO] Using supplied local binary: $1"
     cp "$1" "${INSTALL_DIR}/go-shortener"
 else
@@ -63,12 +78,19 @@ fi
 
 chmod +x "${INSTALL_DIR}/go-shortener"
 
+# Copy uninstaller script to target directory for easy management
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/uninstall.sh" ]; then
+    cp "${SCRIPT_DIR}/uninstall.sh" "${INSTALL_DIR}/uninstall.sh"
+    chmod +x "${INSTALL_DIR}/uninstall.sh"
+fi
+
 # 5. Safe Configuration Setup (NEVER overwrite existing .env on update)
 ENV_FILE="${INSTALL_DIR}/.env"
 if [ ! -f "${ENV_FILE}" ]; then
     echo "[INFO] Creating initial production .env configuration..."
     RANDOM_SECRET=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 40)
-    ADMIN_INIT_PW="AdminSecurePass_$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)!"
+    ADMIN_INIT_PW="AdminPass_$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)!"
 
     cat << ENVCONF > "${ENV_FILE}"
 # Server Configuration
@@ -77,7 +99,7 @@ HOST=127.0.0.1
 BASE_URL=https://go.arcn.online
 APP_ENV=production
 
-# Database
+# Database (Strictly inside /root/Go-shortner/data)
 DB_PATH=${DATA_DIR}/go.sqlite
 
 # Security & Sessions
@@ -131,7 +153,6 @@ Restart=always
 RestartSec=3
 LimitNOFILE=65535
 
-ProtectSystem=full
 PrivateTmp=true
 
 [Install]
@@ -146,8 +167,15 @@ echo ""
 echo "==============================================================="
 echo "   GO Shortener Installed & Started Successfully!             "
 echo "==============================================================="
+echo "Install Path:    ${INSTALL_DIR}"
+echo "Binary:          ${INSTALL_DIR}/go-shortener"
+echo "Database:        ${DATA_DIR}/go.sqlite"
+echo "Config:          ${ENV_FILE}"
 echo "Service Status:  systemctl status go-shortener"
 echo "Service Logs:    journalctl -u go-shortener -f"
 echo "Local Endpoint:  http://127.0.0.1:3000"
 echo "Public Domain:   https://go.arcn.online (via Cloudflare Tunnel)"
+echo ""
+echo "To Uninstall:    ${INSTALL_DIR}/uninstall.sh"
+echo "To Purge All:    ${INSTALL_DIR}/uninstall.sh --purge"
 echo "==============================================================="

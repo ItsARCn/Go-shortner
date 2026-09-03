@@ -5,14 +5,13 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/go-shortener
-ExecStart=/opt/go-shortener/go-shortener
+WorkingDirectory=/root/Go-shortner
+ExecStart=/root/Go-shortner/go-shortener
 Restart=always
 RestartSec=3
 LimitNOFILE=65535
 
 # Security Hardening
-ProtectSystem=full
 PrivateTmp=true
 
 [Install]
