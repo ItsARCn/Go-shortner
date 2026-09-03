@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Create Account - GO Shortener</title>
   <link rel="stylesheet" href="/assets/style.css">
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 </head>
 <body>
   <header>
@@ -129,37 +131,95 @@
       }
     });
 
+    let firebaseReady = false;
+
+    // Load Firebase Web App configuration dynamically from backend
+    fetch('/api/auth/firebase-config')
+      .then(r => r.json())
+      .then(cfg => {
+        if (cfg && cfg.enabled && cfg.api_key) {
+          try {
+            if (!firebase.apps.length) {
+              firebase.initializeApp({
+                apiKey: cfg.api_key,
+                authDomain: cfg.auth_domain,
+                projectId: cfg.project_id,
+                storageBucket: cfg.storage_bucket,
+                messagingSenderId: cfg.messaging_sender_id,
+                appId: cfg.app_id
+              });
+            }
+            firebaseReady = true;
+          } catch (e) {
+            console.warn('Firebase init:', e);
+          }
+        }
+      })
+      .catch(() => {});
+
     document.getElementById('google-reg-btn').addEventListener('click', async () => {
       errEl.textContent = '';
       errEl.classList.remove('show');
 
-      const promptEmail = prompt("Enter Google Email for Sign-Up:", "google.user@example.com");
-      if (!promptEmail) return;
+      if (firebaseReady) {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        try {
+          const result = await firebase.auth().signInWithPopup(provider);
+          const idToken = await result.user.getIdToken();
 
-      const dummyToken = btoa(JSON.stringify({alg:"none"})) + "." +
-        btoa(JSON.stringify({
-          sub: "google-uid-" + Math.random().toString(36).substring(2, 9),
-          email: promptEmail,
-          name: "Google User",
-          exp: Math.floor(Date.now() / 1000) + 3600
-        })) + ".sig";
-
-      try {
-        const res = await fetch('/api/auth/google', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id_token: dummyToken })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          errEl.textContent = data.error || 'Google sign-up failed';
+          const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id_token: idToken })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            errEl.textContent = data.error || 'Google sign-up failed';
+            errEl.classList.add('show');
+            return;
+          }
+          window.location.href = '/dashboard';
+        } catch (err) {
+          if (err.code === 'auth/popup-closed-by-user') return;
+          errEl.textContent = err.message || 'Google sign-up error';
           errEl.classList.add('show');
-          return;
         }
-        window.location.href = '/dashboard';
-      } catch (err) {
-        errEl.textContent = 'Google sign-up error';
-        errEl.classList.add('show');
+      } else {
+        // Fallback for local development or before Firebase is configured in .env
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (isLocal) {
+          const promptEmail = prompt("Enter Google Email for Sign-Up (Dev Mode):", "google.user@example.com");
+          if (!promptEmail) return;
+
+          const dummyToken = btoa(JSON.stringify({alg:"none"})) + "." +
+            btoa(JSON.stringify({
+              sub: "google-uid-" + Math.random().toString(36).substring(2, 9),
+              email: promptEmail,
+              name: "Google User",
+              exp: Math.floor(Date.now() / 1000) + 3600
+            })) + ".sig";
+
+          try {
+            const res = await fetch('/api/auth/google', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id_token: dummyToken })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              errEl.textContent = data.error || 'Google sign-up failed';
+              errEl.classList.add('show');
+              return;
+            }
+            window.location.href = '/dashboard';
+          } catch (err) {
+            errEl.textContent = 'Google sign-up error';
+            errEl.classList.add('show');
+          }
+        } else {
+          errEl.textContent = 'Google Sign-In requires Firebase configuration. Please configure FIREBASE_* variables in your server .env file.';
+          errEl.classList.add('show');
+        }
       }
     });
   </script>

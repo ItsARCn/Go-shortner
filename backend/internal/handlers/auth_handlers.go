@@ -186,3 +186,29 @@ func setSessionCookie(w http.ResponseWriter, token string) {
 		SameSite: http.SameSiteLaxMode,
 	})
 }
+
+// HandleFirebaseConfig handles GET /api/auth/firebase-config
+func (h *AuthHandler) HandleFirebaseConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if h.cfg == nil || h.cfg.FirebaseAPIKey == "" {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled": false,
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"enabled":              true,
+		"api_key":              h.cfg.FirebaseAPIKey,
+		"auth_domain":          h.cfg.FirebaseAuthDomain,
+		"project_id":           h.cfg.FirebaseProjectID,
+		"storage_bucket":       h.cfg.FirebaseStorageBucket,
+		"messaging_sender_id":  h.cfg.FirebaseMessagingSenderID,
+		"app_id":               h.cfg.FirebaseAppID,
+	})
+}

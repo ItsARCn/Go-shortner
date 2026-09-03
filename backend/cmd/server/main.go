@@ -82,6 +82,7 @@ func main() {
 	mux.HandleFunc("POST /api/auth/google", authLimiter.Limit(authHandler.HandleGoogleLogin))
 	mux.HandleFunc("POST /api/auth/logout", authHandler.HandleLogout)
 	mux.HandleFunc("GET /api/auth/me", middleware.RequireAuth(authService, authHandler.HandleMe))
+	mux.HandleFunc("GET /api/auth/firebase-config", authHandler.HandleFirebaseConfig)
 
 	// User API Endpoints (Protected)
 	mux.HandleFunc("GET /api/user/dashboard", middleware.RequireAuth(authService, userHandler.HandleDashboard))

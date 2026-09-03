@@ -23,7 +23,12 @@ type Config struct {
 	TurnstileSecretKey          string
 	AdminBootstrapEmail         string
 	AdminBootstrapPassword      string
+	FirebaseAPIKey              string
+	FirebaseAuthDomain          string
 	FirebaseProjectID           string
+	FirebaseStorageBucket       string
+	FirebaseMessagingSenderID   string
+	FirebaseAppID               string
 }
 
 // Load reads configuration from environment variables, optionally reading a .env file first.
@@ -46,7 +51,12 @@ func Load(envFilePath string) *Config {
 		TurnstileSecretKey:          getEnv("TURNSTILE_SECRET_KEY", ""),
 		AdminBootstrapEmail:         getEnv("ADMIN_BOOTSTRAP_EMAIL", "admin@example.com"),
 		AdminBootstrapPassword:      getEnv("ADMIN_BOOTSTRAP_PASSWORD", ""),
-		FirebaseProjectID:           getEnv("FIREBASE_PROJECT_ID", "dev"),
+		FirebaseAPIKey:              getEnv("FIREBASE_API_KEY", ""),
+		FirebaseAuthDomain:          getEnv("FIREBASE_AUTH_DOMAIN", ""),
+		FirebaseProjectID:           getEnv("FIREBASE_PROJECT_ID", ""),
+		FirebaseStorageBucket:       getEnv("FIREBASE_STORAGE_BUCKET", ""),
+		FirebaseMessagingSenderID:   getEnv("FIREBASE_MESSAGING_SENDER_ID", ""),
+		FirebaseAppID:               getEnv("FIREBASE_APP_ID", ""),
 	}
 
 	return cfg

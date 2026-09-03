@@ -193,6 +193,7 @@ To remove **GO Shortener** from your VPS:
 | `POST` | `/api/auth/google` | Sign in / link account via Google OAuth (Firebase token) |
 | `POST` | `/api/auth/logout` | Clear session cookie |
 | `GET` | `/api/auth/me` | Fetch authenticated user profile |
+| `GET` | `/api/auth/firebase-config` | Public client config for Firebase Web App initialization |
 
 ### User Management (Protected)
 | Method | Route | Description |
@@ -242,7 +243,12 @@ To remove **GO Shortener** from your VPS:
 | `TURNSTILE_ENABLED` | Enable Cloudflare Turnstile CAPTCHA | `false` |
 | `TURNSTILE_SITE_KEY` | Turnstile public site key | Empty |
 | `TURNSTILE_SECRET_KEY` | Turnstile secret key | Empty |
-| `FIREBASE_PROJECT_ID` | Firebase project ID for Google OAuth | Empty |
+| `FIREBASE_API_KEY` | Firebase Web App API Key | Empty |
+| `FIREBASE_AUTH_DOMAIN` | Firebase Web App Auth Domain (`<project-id>.firebaseapp.com`) | Empty |
+| `FIREBASE_PROJECT_ID` | Firebase Project ID | Empty |
+| `FIREBASE_STORAGE_BUCKET` | Firebase Storage Bucket (`<project-id>.firebasestorage.app`) | Empty |
+| `FIREBASE_MESSAGING_SENDER_ID` | Firebase Cloud Messaging Sender ID | Empty |
+| `FIREBASE_APP_ID` | Firebase Web App ID (`1:xxxx:web:xxxx`) | Empty |
 
 ---
 

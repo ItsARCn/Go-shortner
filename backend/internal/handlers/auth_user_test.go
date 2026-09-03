@@ -53,6 +53,7 @@ func setupAuthUserServer(t *testing.T) (*httptest.Server, *service.AuthService, 
 	mux.HandleFunc("POST /api/auth/login", authH.HandleLogin)
 	mux.HandleFunc("POST /api/auth/logout", authH.HandleLogout)
 	mux.HandleFunc("GET /api/auth/me", middleware.RequireAuth(authSvc, authH.HandleMe))
+	mux.HandleFunc("GET /api/auth/firebase-config", authH.HandleFirebaseConfig)
 
 	mux.HandleFunc("POST /api/links/shorten", middleware.OptionalAuth(authSvc, h.HandleShorten))
 	mux.HandleFunc("GET /api/user/dashboard", middleware.RequireAuth(authSvc, userH.HandleDashboard))
@@ -166,5 +167,30 @@ func TestAuthAndUserLifecycle(t *testing.T) {
 	defer delResp.Body.Close()
 	if delResp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 OK from delete, got %d", delResp.StatusCode)
+	}
+}
+
+func TestFirebaseConfigEndpoint(t *testing.T) {
+	ts, _, cleanup := setupAuthUserServer(t)
+	defer cleanup()
+
+	// 1. Check disabled config
+	resp, err := http.Get(ts.URL + "/api/auth/firebase-config")
+	if err != nil {
+		t.Fatalf("failed to fetch firebase config: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if enabled, ok := data["enabled"].(bool); !ok || enabled {
+		t.Errorf("expected enabled to be false when no API key configured, got %v", data["enabled"])
 	}
 }
